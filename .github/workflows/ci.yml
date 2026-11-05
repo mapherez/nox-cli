@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nox-cli-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Native checks / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Verify dependency checksums and module tidiness
+        run: |
+          go mod download
+          go mod verify
+          go mod tidy -diff
+      - name: Check Go formatting
+        run: |
+          files="$(gofmt -l cmd internal)"
+          if [ -n "$files" ]; then
+            echo "$files"
+            exit 1
+          fi
+      - name: Vet and test
+        run: |
+          go vet ./...
+          go test -mod=readonly ./...
+      - name: Detect Go races
+        if: runner.os == 'Linux'
+        run: go test -race -mod=readonly ./...
+      - name: Check compiled process and native terminal lifecycle
+        run: python scripts/check_foundation.py
+      - name: Test POSIX installer verification and cleanup
+        if: runner.os != 'Windows'
+        run: |
+          sh -n install.sh
+          python -m unittest discover -s scripts -p 'test_*.py'
+      - name: Test Windows installer verification and cleanup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test_installers.ps1
+      - name: Check native credential replacement and removal
+        if: runner.os != 'Linux'
+        env:
+          NOX_CLI_TEST_NATIVE_VAULT: '1'
+        run: go test -mod=readonly ./internal/credentials -run TestNativeVaultReplacement -count=1 -timeout=30s
+      - name: Prepare isolated Linux Secret Service test
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gnome-keyring dbus-x11
+      - name: Check Linux credential replacement and removal
+        if: runner.os == 'Linux'
+        run: |
+          dbus-run-session -- bash -euo pipefail <<'NOX_VAULT_TEST'
+          NOX_VAULT_TEST_DIR=$(mktemp -d)
+          cleanup() { rm -rf -- "$NOX_VAULT_TEST_DIR"; }
+          trap cleanup EXIT
+          export XDG_DATA_HOME="$NOX_VAULT_TEST_DIR"
+          printf "%s" "disposable-ci-vault-password" | gnome-keyring-daemon --unlock --components=secrets
+          NOX_CLI_TEST_NATIVE_VAULT=1 go test -mod=readonly ./internal/credentials -run TestNativeVaultReplacement -count=1 -timeout=30s
+          NOX_VAULT_TEST
+
+
+  cross-build:
+    name: Six-target compilation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python scripts/check_foundation.py --cross-build

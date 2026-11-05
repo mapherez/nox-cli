@@ -1,0 +1,5 @@
+/dist/
+/coverage.out
+/nox
+/nox.exe
+__pycache__/
