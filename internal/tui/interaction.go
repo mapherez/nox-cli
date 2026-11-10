@@ -45,6 +45,7 @@ func (m *model) startInteraction() tea.Cmd {
 	}
 	m.activeRun = run
 	m.formError = ""
+	m.setStatus("", "")
 	return m.syncInteraction()
 }
 func (m *model) syncInteraction() tea.Cmd {
@@ -53,6 +54,12 @@ func (m *model) syncInteraction() tea.Cmd {
 	}
 	r := m.activeRun
 	m.formError = ""
+	if r.DirectRead() {
+		if err := r.Approve(""); err != nil {
+			m.formError = err.Error()
+			return nil
+		}
+	}
 	switch r.Mode {
 	case "pending":
 		return m.startToolCall()
@@ -215,9 +222,6 @@ func (m model) interactionEvent(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.statusKind = ""
 		m.status = ""
-		if m.activeRun.Mode == "done" {
-			m.setStatus("success", "The action completed successfully.")
-		}
 		if m.activeRun.Mode == "error" {
 			m.setStatus("error", m.redact(m.activeRun.Problem))
 		}
@@ -254,7 +258,8 @@ func (m model) currentOptions() []interaction.Option {
 func (m model) interactionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	r := m.activeRun
 	k := msg.String()
-	if k == "esc" {
+	if k == "esc" || (k == "enter" && (r.Mode == "done" || r.Mode == "error")) {
+		m.setStatus("", "")
 		m.activeRun = nil
 		m.formValue.SetValue("")
 		m.formArea.SetValue("")
@@ -263,6 +268,14 @@ func (m model) interactionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.catalog == nil {
 			m.details = false
 			m.detailAction = nil
+		} else if m.actionFromMenu {
+			m.details = false
+			m.detailAction = nil
+			if m.detailPushed && len(m.route) > 0 {
+				m.backMenu()
+			}
+			m.detailPushed = false
+			m.actionFromMenu = false
 		} else if m.detailAction != nil {
 			label := m.detailAction.Alias
 			if current := m.currentNode(); current != nil {
@@ -276,6 +289,7 @@ func (m model) interactionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if (r.Mode == "error" || r.Mode == "done") && (k == "r" || k == "R") {
 		m.activeRun = nil
+		m.actionFromMenu = false
 		m.details = false
 		m.detailAction = nil
 		if m.detailPushed {
@@ -498,25 +512,39 @@ func (m model) reviewText() string {
 }
 func (m model) resultText() string {
 	r := m.activeRun
-	title := "Completed"
-	if r.Mode == "error" {
-		title = "Operation stopped"
+	label := r.Alias
+	if node := m.currentNode(); node != nil && node.Action != nil && node.Action.Alias == r.Alias {
+		label = node.Label
 	}
-	lines := []string{title, ""}
+	lines := []string{safeText(label), ""}
 	if r.Problem != "" {
 		lines = append(lines, r.Problem, "")
 	}
 	if r.Result != nil {
-		if r.Result.IsError {
-			lines = append(lines, "Tool error", "")
+		schema := any(nil)
+		name := r.Target()
+		if name == "" {
+			name = r.Alias
+		}
+		if definition := r.Catalog.Definitions[name]; definition != nil {
+			if tool, ok := definition["tool"].(map[string]any); ok {
+				schema = tool["outputSchema"]
+			}
 		}
 		if r.Result.StructuredContent != nil {
-			lines = append(lines, "Structured result", interaction.Pretty(r.Result.StructuredContent), "")
+			lines = append(lines, readableResult(r.Result.StructuredContent, schema), "")
 		}
 		for _, content := range r.Result.Content {
 			switch c := content.(type) {
 			case *mcp.TextContent:
-				lines = append(lines, c.Text)
+				if value, err := interaction.Decode(c.Text); err == nil {
+					if r.Result.StructuredContent != nil && interaction.Equal(value, r.Result.StructuredContent) {
+						continue
+					}
+					lines = append(lines, readableResult(value, nil))
+				} else {
+					lines = append(lines, c.Text)
+				}
 			case *mcp.ImageContent:
 				lines = append(lines, fmt.Sprintf("Image: %s (%d bytes)", c.MIMEType, len(c.Data)))
 			case *mcp.AudioContent:
@@ -538,9 +566,9 @@ func (m model) resultText() string {
 			}
 		}
 	}
-	lines = append(lines, "", "No operation is retried automatically.")
-	return m.redact(safeParagraph(strings.Join(lines, "\n")))
+	return m.redact(safeParagraph(strings.TrimSpace(strings.Join(lines, "\n"))))
 }
+
 func (m model) interactionLines() ([]string, int) {
 	r := m.activeRun
 	switch r.Mode {

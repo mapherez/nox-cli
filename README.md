@@ -23,8 +23,9 @@ go run ./cmd/nox
 
 Choose **Settings** (selected when unconfigured) with Enter. Use Up / Down to move between fields/actions, Enter to select, and Esc to return. Arrow keys navigate every menu, including Settings and Updates and installation.
 
-1. Enter the Gateway's private base address, for example
-   `http://gateway.home.arpa:5711`. Do not append `/mcp` or a product path.
+1. Enter your Gateway's private base address, including its port when required.
+   No Gateway address or port is preconfigured. A saved address is loaded only
+   from this computer's local configuration. Do not append `/mcp` or a product path.
 2. Paste the existing Backend personal API key into the masked field.
 3. Select **Save and test**. A successful exchange reports the negotiated MCP
    version and tool count. An authenticated empty catalog is valid.
@@ -43,7 +44,8 @@ hardcoded product menus. A configured installation selects Apps at startup.
 | Key | Action |
 | --- | --- |
 | Up / Down, J / K | Select an item |
-| Enter / Right | Open a submenu or read-only tool details |
+| Enter | Open a submenu or start the selected action |
+| Right | Open a submenu; never execute an action |
 | Esc / Left | Clear a filter, close details, or go back one level |
 | Home / End, Page Up / Page Down | Move through long menus |
 | `/` | Filter the current menu by label or canonical segment |
@@ -59,13 +61,17 @@ and a night scene when the terminal has room; submenus and small terminals use a
 compact header. Shared violet/teal accents adapt to the terminal's reported light
 or dark background without changing its background or font. Selected options use
 bold accent text, with blank rows between options when space permits. Menus and details scroll
-with the keyboard. Selecting a tool opens its details. Enter starts its input/review flow; selectors
-and previews may make read-only requests before final execution is approved.
+with the keyboard. Enter on an action opens its form or review directly. A declared
+read-only action runs as soon as its requested inputs have been collected, without
+an extra review, unless it publishes a preview, workflow or confirmation. With no
+inputs, selecting the action is enough to open its result. Selectors and previews may make read-only
+requests while preparing other actions; writes retain their review.
 
 Gateway context appears on its own **GATEWAY** line. Action messages appear in a
 separate bordered panel labeled **SUCCESS**, **WARNING**, **ERROR**, **WORKING** or
 **INFO**, with distinct colors for light/dark terminals. Validation and confirmation
-messages take priority over earlier status messages. The **KEYS** footer contains
+messages take priority over earlier status messages. Routine catalog loads and
+successful tool results do not show completion banners. The **KEYS** footer contains
 only the controls for the current screen. Messages wrap within the available space;
 small terminals use compact notices while keeping the selected item visible.
 
@@ -78,31 +84,41 @@ show a retryable error. There is no authentication polling or idle push channel.
 
 Missing paths, ambiguous paths and unsupported descriptors are identified without
 inventing replacement menus or hiding valid actions. Press `?` for diagnostics.
-A node can expose both its own action details and submenus. Public Gateway access,
+A node can expose both its own action and submenus. Its **Run this action** entry starts the same generic flow. Public Gateway access,
 an embedded agent/chat, an incoming MCP server and external MCP aggregation are
 outside this CLI's scope. AI clients connect directly to Gateway.
 
 ## Run a tool
 
-1. Open **Apps**, select a product and tool, then press Enter on its details.
+1. Open **Apps**, select a product and action, then press Enter. A parameter-free
+   read opens its result directly; other actions open their inputs or review.
+   After the last input of a read-only query is selected, it runs immediately too,
+   unless its descriptor explicitly requests a preview, workflow or confirmation.
+   There is no mandatory technical-details page before the action.
 2. Complete the published input fields. The CLI preserves JSON types and does not
    insert schema defaults. Dynamic selectors use IDs separately from display
    labels; duplicate names are distinguished. Related choices reload when their
    input changes. An empty required selector cannot proceed.
-3. Review the arguments and any published preview. Password fields stay hidden.
+3. For writes or explicitly published review/confirmation steps, review the
+   arguments and any published preview. Password fields stay hidden.
    Scroll with Up/Down or Page Up/Page Down. Ctrl+E edits inputs and discards the
    previous preview/confirmation. Workflows that already wrote data cannot rewind
    and replay those writes.
 4. Enter approves the reviewed action/step. Typed confirmations must match exactly.
    Confirmation arguments are added only where the descriptor requests a binding.
-5. Inspect the scrollable result. Structured JSON, ordinary text, tool errors and
-   resource information are shown; external resources are never fetched or opened
-   automatically. Esc returns to the tool; R reloads menus without replaying it.
+5. Inspect the scrollable result. JSON is presented as labeled fields and nested
+   lists, including readable booleans and exact numbers. Equivalent JSON text is
+   omitted when the same structured result is already displayed; distinct text,
+   errors and resource information are retained. Successful results appear without
+   a repeated completion banner; failures and required confirmations stay visible.
+   External resources are never fetched or opened automatically. Enter or Esc
+   returns to the parent menu without rerunning the action; R reloads menus
+   without replaying the operation.
 
 | Input | Keys |
 | --- | --- |
 | Text, password, number | Enter accepts the value |
-| Select | Type to filter, arrows to choose, Enter accepts the typed ID |
+| Select | Type to filter, arrows to choose, Enter accepts the selected value without typing its ID |
 | Multiselect | Type to filter, Space toggles values, Enter accepts the array |
 | Checkbox | Choose Enabled/Disabled, Enter accepts a boolean |
 | Textarea or JSON | Enter inserts a line; Ctrl+D accepts |

@@ -55,7 +55,7 @@ func browserFixture(t *testing.T, count int) (model, *int) {
 		definitions := map[string]noxmcp.JSON{}
 		for i := 0; i < count; i++ {
 			name := fmt.Sprintf("alias-%03d", i)
-			definitions[name] = noxmcp.JSON{"tool": map[string]any{"name": name, "description": strings.Repeat("Readable tool description. ", 30), "inputSchema": map[string]any{"type": "object"}, "_meta": map[string]any{"cli": fmt.Sprintf("vault action%d", i), "nox/gateway": map[string]any{"version": "1.0", "productId": "nox-backend"}}}, "cli": map[string]any{"version": "1.0", "navigation": map[string]any{"label": fmt.Sprintf("Action %03d", i), "group": "Vaults", "order": float64(i)}}}
+			definitions[name] = noxmcp.JSON{"tool": map[string]any{"name": name, "description": strings.Repeat("Readable tool description. ", 30), "inputSchema": map[string]any{"type": "object"}, "_meta": map[string]any{"cli": fmt.Sprintf("vault action%d", i), "nox/gateway": map[string]any{"version": "1.0", "productId": "nox-backend", "serverId": "test-source"}}}, "fingerprint": strings.Repeat("a", 43), "cli": map[string]any{"version": "1.0", "navigation": map[string]any{"label": fmt.Sprintf("Action %03d", i), "group": "Vaults", "order": float64(i)}}}
 		}
 		return gateway.Catalog{Definitions: definitions, Report: gateway.Report{ToolCount: count}, Presentation: noxmcp.JSON{"products": []any{map[string]any{"productId": "nox-backend", "displayName": "NoX Backend"}}}}, nil
 	}
@@ -119,7 +119,7 @@ func loadApps(t *testing.T, m model) model {
 	return updated.(model)
 }
 
-func TestLocalMenuNavigationSearchDetailsBackAndExplicitRefresh(t *testing.T) {
+func TestLocalMenuNavigationSearchActionBackAndExplicitRefresh(t *testing.T) {
 	m, calls := browserFixture(t, 3)
 	m = loadApps(t, m)
 	for i := 0; i < 2; i++ {
@@ -141,8 +141,8 @@ func TestLocalMenuNavigationSearchDetailsBackAndExplicitRefresh(t *testing.T) {
 	}
 	m, _ = press(m, "enter")
 	m, _ = press(m, "enter")
-	if !m.details || !strings.Contains(m.detail.GetContent(), "alias-002") || *calls != 1 {
-		t.Fatal("tool details or local navigation failed")
+	if !m.details || m.activeRun == nil || m.activeRun.Mode != "review" || *calls != 1 {
+		t.Fatal("action review or local navigation failed")
 	}
 	m, _ = press(m, "esc")
 	if m.details || m.breadcrumb() != "Home / Apps / NoX Backend / Vaults" || m.selected != 2 {
@@ -202,6 +202,7 @@ func TestResizeLongLabelsScrollingAndTerminalControlSafety(t *testing.T) {
 	if !m.details || m.detail.YOffset() == 0 {
 		t.Fatal("long detail description did not scroll")
 	}
+	m, _ = press(m, "esc")
 	m, _ = press(m, "r")
 	if m.details || len(m.route) != 2 {
 		t.Fatal("refresh from a leaf retained an empty leaf menu")

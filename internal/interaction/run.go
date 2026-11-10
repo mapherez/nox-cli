@@ -555,3 +555,12 @@ func (r *Run) Target() string {
 	}
 	return fmt.Sprintf("%s · step %d", r.Alias, r.step+1)
 }
+
+// DirectRead reports whether all requested input has been collected for a
+// read that needs no explicit review. Normal guarded dispatch still applies.
+func (r *Run) DirectRead() bool {
+	annotations := object(object(r.definition["tool"])["annotations"])
+	return r.Mode == "review" && len(r.workflow) == 0 &&
+		object(r.descriptor["preview"]) == nil && len(r.confirmation) == 0 &&
+		annotations["readOnlyHint"] == true && annotations["destructiveHint"] != true
+}

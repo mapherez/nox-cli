@@ -40,7 +40,7 @@ func (m model) currentMessage() message {
 			}
 			return message{"error", text}
 		case "done":
-			return message{"success", "The action completed successfully."}
+			return message{}
 		}
 	}
 	return message{m.statusKind, m.status}
@@ -143,7 +143,7 @@ func (m model) keyHelp() string {
 		case "review":
 			return "Enter: Confirm / Execute  Ctrl+E: Edit  ↑/↓: Scroll  Esc: Cancel"
 		case "done", "error":
-			return "↑/↓: Scroll  Esc: Back  R: Refresh"
+			return "Enter / Esc: Back to menu  ↑/↓: Scroll  R: Reload menus"
 		case "input":
 			if f := m.activeRun.Current(); f != nil {
 				switch f.Control {
@@ -173,11 +173,11 @@ func (m model) keyHelp() string {
 	if m.browser {
 		if m.details {
 			if m.detailAction != nil {
-				return "Enter: Configure / Run  ↑/↓: Scroll  Esc: Back  R: Refresh"
+				return "Enter: Configure / Run  ↑/↓: Scroll  Esc: Back to menu  R: Reload menus"
 			}
-			return "↑/↓: Scroll  Esc: Back  R: Refresh"
+			return "↑/↓: Scroll  Esc: Back to menu  R: Reload menus"
 		}
-		return "↑/↓: Move  Enter: Open  ← / Esc: Back  /: Search  R: Refresh  ?: Info  F2: Settings"
+		return "↑/↓: Move  Enter: Select  ← / Esc: Back  /: Search  R: Refresh  ?: Info  F2: Settings"
 	}
 	return "↑/↓: Move  Enter: Select  Esc: Exit"
 }

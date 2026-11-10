@@ -35,6 +35,7 @@ type checkedMsg struct {
 }
 
 type model struct {
+	actionFromMenu                                                 bool
 	statusKind, connectionIssue                                    string
 	lastReport                                                     *gateway.Report
 	maintenanceScroll                                              int
@@ -76,7 +77,7 @@ type model struct {
 
 func newModel(ctx context.Context, version string, manager *setup.Manager) model {
 	address, secret, search := textinput.New(), textinput.New(), textinput.New()
-	address.Placeholder = "http://gateway.home.arpa:5711"
+	address.Placeholder = "Enter your Gateway URL"
 	address.Prompt = "Gateway: "
 	address.CharLimit = 2048
 	secret.Placeholder = "Enter a new key, or leave blank to keep the saved key"
@@ -144,6 +145,7 @@ func (m *model) closeSettings() {
 	m.apiKey.Blur()
 }
 func (m *model) clearCatalog() {
+	m.actionFromMenu = false
 	m.catalog = nil
 	m.route = nil
 	m.detailPushed = false
@@ -274,7 +276,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, m.route = m.tree.Find(m.route)
 			m.selected = 0
 			m.details = false
-			m.setStatus("success", fmt.Sprintf("Loaded %d apps and %d tools.", len(m.tree.Root.Children), msg.catalog.Report.ToolCount))
+			m.setStatus("", "")
 		case "remove":
 			m.apiKey.SetValue("")
 			m.setStatus("warning", "API key removed. Add a new key in Settings to connect.")
@@ -525,7 +527,7 @@ func (m model) menuRows() []*navigation.Node {
 	}
 	rows := []*navigation.Node{}
 	if node.Action != nil && len(node.Children) > 0 {
-		rows = append(rows, &navigation.Node{Label: "About this action", Action: node.Action})
+		rows = append(rows, &navigation.Node{Label: "Run this action", Action: node.Action})
 	}
 	rows = append(rows, node.Children...)
 	query := strings.ToLower(strings.TrimSpace(safeText(m.search.Value())))
@@ -621,6 +623,9 @@ func (m model) browserKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.selected = min(len(rows)-1, m.selected+m.menuPageSize())
 	case "enter", "right":
 		row := rows[min(m.selected, len(rows)-1)]
+		if k == "right" && row.Action != nil && len(row.Children) == 0 {
+			return m, nil
+		}
 		m.search.SetValue("")
 		m.selected = 0
 		if row.ID != "" {
@@ -633,6 +638,8 @@ func (m model) browserKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.resizeDetails()
 			m.detail.SetContent(m.actionText(row))
 			m.detail.GotoTop()
+			m.actionFromMenu = true
+			return m, m.startInteraction()
 		}
 	}
 	return m, nil

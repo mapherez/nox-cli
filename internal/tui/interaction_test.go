@@ -26,7 +26,7 @@ func readyTool(t *testing.T) (model, *atomic.Int32) {
 	d["fingerprint"] = strings.Repeat("a", 43)
 	tool := d["tool"].(map[string]any)
 	tool["_meta"].(map[string]any)["nox/gateway"].(map[string]any)["serverId"] = "test-source"
-	tool["annotations"] = map[string]any{"readOnlyHint": true}
+	tool["annotations"] = map[string]any{"readOnlyHint": false}
 	counter := new(atomic.Int32)
 	m.manager.Execute = func(_ context.Context, origin, key, version string, call gateway.Call) (*mcp.CallToolResult, error) {
 		counter.Add(1)
@@ -35,9 +35,16 @@ func readyTool(t *testing.T) (model, *atomic.Int32) {
 		}
 		return &mcp.CallToolResult{StructuredContent: map[string]any{"id": json.Number("9007199254740993")}, Content: []mcp.Content{&mcp.TextContent{Text: "Actual result\n\x1b]52;c;aGVsbG8=\aSafe output"}}}, nil
 	}
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 2; i++ {
 		m, _ = press(m, "enter")
 	}
+	// Prepare an unopened action so each test can choose its contract first.
+	row := m.menuRows()[0]
+	m.route = append(m.route, row.ID)
+	m.detailAction = row.Action
+	m.detailPushed = true
+	m.details = true
+	m.detail.SetContent(m.actionText(row))
 	return m, counter
 }
 func settle(t *testing.T, m model, cmd tea.Cmd) model {
@@ -60,7 +67,7 @@ func settle(t *testing.T, m model, cmd tea.Cmd) model {
 	}
 	return m
 }
-func TestToolDetailsReviewExecuteResultAndNoAutomaticReplay(t *testing.T) {
+func TestMutationReviewExecuteResultAndNoAutomaticReplay(t *testing.T) {
 	m, calls := readyTool(t)
 	if !m.details || calls.Load() != 0 {
 		t.Fatal("menu executed a tool")
@@ -82,7 +89,6 @@ func TestToolDetailsReviewExecuteResultAndNoAutomaticReplay(t *testing.T) {
 	if cmd != nil || calls.Load() != 1 {
 		t.Fatal("result interaction replayed tool")
 	}
-	m, _ = press(m, "esc")
 	if m.activeRun != nil || !m.details {
 		t.Fatal("result did not return to tool")
 	}
