@@ -66,3 +66,44 @@ func TestWindowsHelperReplacesAnExecutableAfterItsProcessExits(t *testing.T) {
 	}
 	t.Fatal("Native Windows helper did not complete update and cleanup")
 }
+
+// Exercise the real shell through the production launcher. A successful
+// CreateProcess alone does not establish that PowerShell executed the script.
+func TestWindowsHelperExecutesPowerShellScript(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "helper with spaces")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(root, "probe.ps1")
+	marker := filepath.Join(root, "executed.txt")
+	if err := os.WriteFile(script, []byte("param([string]$Marker)\n[IO.File]::WriteAllText($Marker, 'executed')\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Marker", marker)
+	pid, err := startHelper(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if processAlive(pid) {
+			if process, err := os.FindProcess(pid); err == nil {
+				_ = process.Kill()
+			}
+		}
+	})
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if raw, err := os.ReadFile(marker); err == nil && string(raw) == "executed" {
+			return
+		}
+		if !processAlive(pid) {
+			// The script may have written the marker and exited between checks.
+			if raw, err := os.ReadFile(marker); err == nil && string(raw) == "executed" {
+				return
+			}
+			t.Fatal("PowerShell exited before executing the helper script")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("PowerShell did not execute the helper script")
+}
