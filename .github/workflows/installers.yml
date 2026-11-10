@@ -1,6 +1,6 @@
 name: Publish installer endpoints
 
-# One-time Pages/domain setup is documented in README; publication is owner-triggered.
+# One-time Pages/domain setup is documented in TECHNICAL.md; publication is owner-triggered.
 on:
   workflow_dispatch:
     inputs:

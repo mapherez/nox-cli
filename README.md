@@ -2,63 +2,94 @@
 
 Your Suite, at your fingertips.
 
-NoX CLI is the interactive terminal interface for NoX Suite. It lets you browse connected applications, choose an operation and see its result without configuring a separate client connection for every product.
+NoX CLI brings your NoX apps into one interactive terminal. Browse your apps, choose what you want to do, select the relevant item and read the result—all from the keyboard.
 
-The interface uses the tools and metadata published by the applications. There is no fixed list of product commands inside the CLI: a conforming product supplies its own operations and appears through Gateway discovery.
+- One connection for the apps in your Suite.
+- Arrow-key navigation, searchable menus and readable results.
+- Choices supplied by each app, with confirmation when an operation requires it.
+- API keys stored in your operating system's credential store, with a session-only option.
+- Update controls inside the app.
 
-## What you can do
+Runs on **Windows, macOS and Linux**, on Intel/AMD and ARM64 computers. You do not need Go, Node.js, Python or Docker to use it.
 
-| Capability | What it provides |
-| --- | --- |
-| Browse your apps | Find the products and tools available to your account. |
-| Navigate with the keyboard | Use arrow keys, Enter and Escape to move through the interface. |
-| Run operations | Select published choices, provide required inputs and confirm actions where requested. |
-| Read results | View structured output as readable fields and lists, with separate error information. |
-| Manage your connection | Configure a private Gateway address and a Backend personal API key. |
-| Keep credentials private | Store the key in the operating system's credential store or use it only for the current session. |
-| Maintain the installation | Check for updates and use the supplied update/removal flows. |
+## Before you start
 
-Ordinary navigation is local. Network requests load the catalog, resolve published choices and execute operations. A failed connection does not automatically retry an action that might already have changed data.
+You need a running NoX Suite installation, your **Gateway address** and a **personal API key from Backend**. Your computer must be able to reach Gateway through your private network or VPN, such as Tailscale or Twingate. Public Gateway addresses are not supported.
 
-## How it fits into NoX Suite
+NoX CLI is for interactive use. To connect an AI assistant to your Suite instead, configure that assistant's MCP connection directly to Gateway.
 
-CLI connects to Gateway, which routes requests to the participating products. Backend remains the authority for the personal API key and effective access; each product executes its own operations and enforces its domain rules.
-
-The CLI can run on another computer with private LAN or VPN access to Gateway. It does not need Docker or access to the host's product sockets. Public Gateway destinations are outside its supported connection policy.
-
-AI MCP clients connect directly to Gateway. The CLI is the human interface and does not expose an MCP server of its own.
-
-## Credential handling
-
-Saved keys use the native operating-system credential store, not plaintext configuration. Replacing a key updates the same stored entry. The interface does not reveal, copy or export saved keys.
-
-If secure storage is unavailable, you can explicitly choose session-only use. When Gateway rejects a key, Suite operations are blocked until a valid replacement is supplied. The CLI learns about that rejection through a Gateway exchange; it does not claim immediate notification while idle.
-
-For architecture, storage paths, connection policy, credential ownership and installation recovery, see the [technical reference](TECHNICAL.md).
+[Technical reference](TECHNICAL.md) · [Report a problem](https://github.com/mapherez/nox-cli/issues)
 
 ## Usage
 
-Installation uses a published release and the supplied [macOS/Linux installer](install.sh) or [Windows installer](install.ps1). Installer hosting is managed by the repository's [publication workflow](.github/workflows/installers.yml). End users do not need Go, Node, Python or Docker.
+### Installation
 
-After installation, start the application from your terminal:
+Open a terminal and run the command for your operating system. The installer downloads the latest published release, selects the correct executable and adds `nox` to your user PATH. Administrator access is not required.
+
+**Windows — PowerShell**
+
+```powershell
+& ([scriptblock]::Create((Invoke-RestMethod 'https://github.com/mapherez/nox-cli/releases/latest/download/install.ps1')))
+```
+
+**macOS / Linux — Terminal**
+
+```sh
+curl -fsSL https://github.com/mapherez/nox-cli/releases/latest/download/install.sh | sh
+```
+
+Open a **new terminal** after installation, then start NoX:
 
 ```sh
 nox
 ```
 
-In **Settings**, enter your Gateway's private base address and your Backend personal API key, then select **Save and test**. No installation-specific address is preconfigured. Open **Apps** to browse the discovered products.
+### Connect to your Suite
 
-Use **Up/Down** to select an item and **Enter** to open it. Required choices and confirmations come from the product's published definition. **Enter** or **Esc** returns from a completed result without running the command again; the footer shows the controls for the current screen.
+1. Open **Settings**.
+2. Enter the **Gateway base address** used on your private network, without `/mcp`.
+3. Enter your **Backend personal API key** and choose **Save and test**. The key is hidden and is not stored in a plain-text configuration file.
+4. Open **Apps** and choose an application.
 
-Use **Settings → Updates and installation** for update controls and removal instructions. The supplied [macOS/Linux uninstaller](uninstall.sh) and [Windows uninstaller](uninstall.ps1) can preserve settings or explicitly remove the CLI's configuration and saved credential. Installation and update files are managed in the application's own `install/` directory.
+If your system's credential store is unavailable, you can select **Use API key only for this session**. You will need to enter it again after closing NoX.
 
-To run from a source checkout, with Go installed:
+Use **Up/Down** to move, **Enter** to select and **Esc** to go back. The footer shows the controls available on the current screen. When an operation finishes, **Enter** or **Esc** returns without running it again. Press **R** to refresh the app catalog.
 
-```sh
-go run ./cmd/nox
+### Update
+
+Open **Settings → Updates and installation → Check for updates**, then choose **Install update** when one is available. Confirm the update and start `nox` again afterward. Your settings and saved API key are preserved.
+
+### Uninstall
+
+Close NoX before running the command for your operating system. These commands remove the installed application and its own PATH changes, while **keeping your settings and saved key**.
+
+**Windows — PowerShell**
+
+```powershell
+& ([scriptblock]::Create((Invoke-RestMethod 'https://github.com/mapherez/nox-cli/releases/latest/download/uninstall.ps1')))
 ```
 
-Maintainers can run `npm run release` from a clean, committed checkout to prepare and push a release request. Node.js is needed for that helper only; build and publication run through the existing GitHub Actions workflows.
+**macOS / Linux — Terminal**
+
+```sh
+curl -fsSL https://github.com/mapherez/nox-cli/releases/latest/download/uninstall.sh | sh
+```
+
+To also delete the CLI's settings and saved API key, use the corresponding command below instead.
+
+**Windows — PowerShell**
+
+```powershell
+& ([scriptblock]::Create((Invoke-RestMethod 'https://github.com/mapherez/nox-cli/releases/latest/download/uninstall.ps1'))) -Purge
+```
+
+**macOS / Linux — Terminal**
+
+```sh
+curl -fsSL https://github.com/mapherez/nox-cli/releases/latest/download/uninstall.sh | sh -s -- --purge
+```
+
+Open a new terminal after removal. Other NoX apps and their data are unaffected. Downloads and update preparation files stay inside the CLI's own `install/` directory and are cleaned up afterward.
 
 ## License & Attribution
 
