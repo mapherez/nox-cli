@@ -3,3 +3,5 @@
 /nox
 /nox.exe
 __pycache__/
+node_modules/
+npm-debug.log*

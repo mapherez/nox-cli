@@ -1,0 +1,9 @@
+{
+  "name": "nox-cli",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "release": "node scripts/release.mjs",
+    "test:release": "node --test scripts/release.test.mjs"
+  }
+}

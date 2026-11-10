@@ -34,6 +34,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Check release helper without publishing
+        run: npm run test:release
       - name: Verify dependency checksums and module tidiness
         run: |
           go mod download
@@ -107,7 +112,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: python scripts/build_release.py --version "$RELEASE_TAG" --output dist
+        run: |
+          python -c 'import json, os; assert os.environ["RELEASE_TAG"] == "v" + json.load(open("package.json"))["version"], "Release tag does not match package.json."'
+          python scripts/build_release.py --version "$RELEASE_TAG" --output dist
       - uses: actions/upload-artifact@v6
         if: startsWith(github.ref, 'refs/tags/')
         with:
