@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/mapherez/nox-cli/internal/maintenance"
@@ -25,7 +24,7 @@ func (m model) checkRelease(force bool) tea.Cmd {
 func (m *model) applyUpdate() tea.Cmd {
 	m.busy = true
 	m.busyKind = "update"
-	m.status = "Downloading and verifying the update..."
+	m.setStatus("working", "Downloading and verifying the NoX CLI update…")
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.cancel = cancel
 	version := m.latestVersion
@@ -69,9 +68,9 @@ func (m model) maintenanceKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.maintenancePage = false
 		m.focus = 6
 		return m, nil
-	case "up", "k", "shift+tab":
+	case "up":
 		m.maintenanceFocus = (m.maintenanceFocus + 3) % 4
-	case "down", "j", "tab":
+	case "down":
 		m.maintenanceFocus = (m.maintenanceFocus + 1) % 4
 	case "enter":
 		switch m.maintenanceFocus {
@@ -79,6 +78,7 @@ func (m model) maintenanceKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if !m.releaseChecking {
 				m.releaseChecking = true
 				m.releaseStatus = "Checking official releases..."
+				m.setStatus("working", m.releaseStatus)
 				return m, m.checkRelease(true)
 			}
 		case 1:
@@ -86,6 +86,7 @@ func (m model) maintenanceKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.confirmUpdate = true
 			} else {
 				m.releaseStatus = "No newer release is ready to install. Check for updates first."
+				m.setStatus("info", m.releaseStatus)
 			}
 		case 2:
 			m.showUninstall = true
@@ -102,11 +103,11 @@ func (m model) maintenanceLines() ([]string, int) {
 		return []string{"Uninstall NoX CLI", "", "Keep settings and the stored API key:", "macOS / Linux:", "curl -fsSL https://cli.mapherez.com/uninstall.sh | sh", "Windows PowerShell:", "$script = irm https://cli.mapherez.com/uninstall.ps1", "& ([scriptblock]::Create($script))", "", "To also delete settings and the single owned API key:", "macOS / Linux: append -s -- --purge after sh.", "Windows: append -Purge after the final parenthesis.", "", "Only installer-owned files and PATH changes are removed.", "Unrelated files are kept. Close other NoX CLI processes first.", "", "Esc: Back"}, m.maintenanceScroll
 	}
 	if m.confirmUpdate {
-		return []string{"Install NoX CLI " + safeText(m.latestVersion) + "?", "", "NoX will close after the update is prepared.", "Run nox again to use the updated version.", "Your configuration and saved API key are preserved.", "", "Enter: Update    Esc: Cancel"}, 6
+		return []string{"Install NoX CLI " + safeText(m.latestVersion) + "?", "", "NoX will close after the update is prepared.", "Run nox again to use the updated version.", "Your configuration and saved API key are preserved.", ""}, 6
 	}
-	status := m.releaseStatus
-	if status == "" {
-		status = "Check for an official release. Source builds are not replaced."
+	status := "Check for an official release. Source builds are not replaced."
+	if m.latestVersion != "" {
+		status = "Latest stable release: " + safeText(m.latestVersion)
 	}
 	target := "Install update"
 	if m.latestVersion != "" {
@@ -117,17 +118,4 @@ func (m model) maintenanceLines() ([]string, int) {
 		lines = append(lines, m.menuChoice(label, m.maintenanceFocus == i))
 	}
 	return lines, 3 + m.maintenanceFocus
-}
-func (m model) updateStatus() string {
-	if releases.Newer(m.latestVersion, m.version) {
-		return "Update " + safeText(m.latestVersion) + " available · Settings → Updates and installation"
-	}
-	return ""
-}
-func (m model) statusText() string {
-	text := m.statusBase()
-	if update := m.updateStatus(); update != "" {
-		text = strings.TrimSpace(text) + " | " + update
-	}
-	return text
 }

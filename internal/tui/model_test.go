@@ -77,6 +77,10 @@ func press(m model, k string) (model, tea.Cmd) {
 		key.Code = tea.KeyDown
 	case "up":
 		key.Code = tea.KeyUp
+	case "left":
+		key.Code = tea.KeyLeft
+	case "right":
+		key.Code = tea.KeyRight
 	case "end":
 		key.Code = tea.KeyEnd
 	case "pgdown":

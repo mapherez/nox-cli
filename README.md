@@ -21,7 +21,7 @@ go run ./cmd/nox --version
 go run ./cmd/nox
 ```
 
-Choose **Settings** (selected when unconfigured) with Enter. Use Tab / Shift+Tab to move between fields/actions.
+Choose **Settings** (selected when unconfigured) with Enter. Use Up / Down to move between fields/actions, Enter to select, and Esc to return. Arrow keys navigate every menu, including Settings and Updates and installation.
 
 1. Enter the Gateway's private base address, for example
    `http://gateway.home.arpa:5711`. Do not append `/mcp` or a product path.
@@ -62,6 +62,13 @@ bold accent text, with blank rows between options when space permits. Menus and 
 with the keyboard. Selecting a tool opens its details. Enter starts its input/review flow; selectors
 and previews may make read-only requests before final execution is approved.
 
+Gateway context appears on its own **GATEWAY** line. Action messages appear in a
+separate bordered panel labeled **SUCCESS**, **WARNING**, **ERROR**, **WORKING** or
+**INFO**, with distinct colors for light/dark terminals. Validation and confirmation
+messages take priority over earlier status messages. The **KEYS** footer contains
+only the controls for the current screen. Messages wrap within the available space;
+small terminals use compact notices while keeping the selected item visible.
+
 The catalog is an in-memory snapshot. Browsing, typing and returning to Apps use
 that snapshot without network requests. First load and explicit refresh make real
 Gateway exchanges; Settings save/test also checks the connection. A snapshot is
@@ -100,7 +107,7 @@ outside this CLI's scope. AI clients connect directly to Gateway.
 | Checkbox | Choose Enabled/Disabled, Enter accepts a boolean |
 | Textarea or JSON | Enter inserts a line; Ctrl+D accepts |
 | Optional field | Ctrl+U omits it rather than inventing an empty/null/false value |
-| Previous field | Shift+Tab |
+| Previous field | Left in a selector, or Left at the start of a text editor |
 | Cancel form/review | Esc |
 
 Options and previews resolve only to available tools from the originating product

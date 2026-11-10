@@ -40,7 +40,7 @@ func (m model) header() string {
 	p := m.palette()
 	version := p.muted.Render(safeText(m.version))
 	if releases.Newer(m.latestVersion, m.version) {
-		version += p.secondary.Render(" · Update " + safeText(m.latestVersion))
+		version += p.secondary.Render(" · Update " + safeText(m.latestVersion) + " available")
 	}
 	if m.settings || m.browser || m.width < 50 || m.height < 24 {
 		title := p.accent.Bold(true).Render("NoX") + "  " + version

@@ -35,6 +35,8 @@ type checkedMsg struct {
 }
 
 type model struct {
+	statusKind, connectionIssue                                    string
+	lastReport                                                     *gateway.Report
 	maintenanceScroll                                              int
 	updater                                                        *maintenance.Manager
 	maintenancePage, showUninstall, confirmUpdate, releaseChecking bool
@@ -90,12 +92,12 @@ func newModel(ctx context.Context, version string, manager *setup.Manager) model
 	m.detail.SoftWrap = true
 	settings, err := manager.Settings()
 	if err != nil {
-		m.status = err.Error()
+		m.setStatus("error", err.Error())
 	} else if settings.GatewayOrigin != "" {
 		m.origin.SetValue(settings.GatewayOrigin)
 		m.sessionOnly = settings.SessionOnly
 		if settings.SessionOnly {
-			m.status = "Session-only mode: enter an API key for this session."
+			m.setStatus("info", "Session-only mode: enter an API key for this session.")
 		} else if settings.CredentialRef != "" {
 			m.configured = true
 			m.cursor = 0
@@ -103,7 +105,7 @@ func newModel(ctx context.Context, version string, manager *setup.Manager) model
 		}
 	}
 	if notice := m.updater.Result(); notice != "" {
-		m.status += " " + safeText(notice)
+		m.setStatus("info", safeText(notice))
 	}
 	return m
 }
@@ -154,14 +156,15 @@ func (m *model) clearCatalog() {
 func (m *model) operation(kind string) tea.Cmd {
 	m.busy = true
 	m.busyKind = kind
-	m.status = "Checking connection..."
+	m.setStatus("working", "Checking the Gateway connection…")
+	m.connectionIssue = ""
 	if kind == "browse" {
-		m.status = "Loading app menus from Gateway..."
+		m.setStatus("working", "Loading your apps and available tools…")
 	} else {
 		m.clearCatalog() // A connection/key change cannot retain another view's menu.
 		if kind == "remove" {
 			m.configured = false
-			m.status = "Removing API key..."
+			m.setStatus("working", "Removing the saved API key from secure storage…")
 		}
 	}
 	m.generation++
@@ -195,6 +198,7 @@ func (m *model) operation(kind string) tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case releaseMsg:
+		manualCheck := m.releaseChecking
 		m.releaseChecking = false
 		m.latestVersion = msg.check.Latest
 		if msg.err != nil {
@@ -206,12 +210,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.releaseStatus = "No newer stable release is available."
 		}
+		if manualCheck && m.maintenancePage {
+			kind := "success"
+			if msg.err != nil {
+				kind = "warning"
+			}
+			m.setStatus(kind, m.releaseStatus)
+		}
 		return m, nil
 	case updatedMsg:
 		m.busy = false
 		m.cancel = nil
 		if msg.err != nil {
-			m.status = msg.err.Error()
+			m.setStatus("error", msg.err.Error())
 			return m, nil
 		}
 		m.exitNotice = "NoX CLI update prepared. Run nox again to use the updated version."
@@ -227,20 +238,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = false
 		m.cancel = nil
 		if msg.err != nil {
-			m.status = msg.err.Error()
+			m.lastReport = nil
+			m.connectionIssue = "Not verified"
+			m.setStatus("error", msg.err.Error())
 			if msg.kind == "browse" {
 				m.clearCatalog()
 			}
 			if errors.Is(msg.err, context.Canceled) {
-				m.status = "Connection check canceled."
+				m.connectionIssue = "Check canceled"
+				m.setStatus("warning", "Connection check canceled.")
 			}
 			rejected := errors.Is(msg.err, gateway.ErrRejected) && (msg.kind != "save" || msg.usingSaved)
 			if rejected || errors.Is(msg.err, credentials.ErrNotFound) {
 				m.configured = false
+				m.connectionIssue = "API key required or rejected"
 				m.clearCatalog()
 				m.apiKey.SetValue("")
 			}
 			return m, nil
+		}
+		m.connectionIssue = ""
+		if msg.kind != "remove" {
+			report := msg.report
+			if msg.catalog != nil {
+				report = msg.catalog.Report
+			}
+			m.lastReport = &report
+		} else {
+			m.lastReport = nil
 		}
 		switch msg.kind {
 		case "browse":
@@ -249,16 +274,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, m.route = m.tree.Find(m.route)
 			m.selected = 0
 			m.details = false
-			m.status = fmt.Sprintf("Catalog loaded: %d apps, %d tools. Navigation is local; R refreshes.", len(m.tree.Root.Children), msg.catalog.Report.ToolCount)
+			m.setStatus("success", fmt.Sprintf("Loaded %d apps and %d tools.", len(m.tree.Root.Children), msg.catalog.Report.ToolCount))
 		case "remove":
 			m.apiKey.SetValue("")
-			m.status = "API key removed. Enter a new key to connect."
+			m.setStatus("warning", "API key removed. Add a new key in Settings to connect.")
 		default:
 			m.configured = true
 			if msg.kind == "save" {
 				m.apiKey.SetValue("")
 			}
-			m.status = fmt.Sprintf("Connected to %s %s using MCP %s. %d tools discovered.", safeText(msg.report.ServerName), safeText(msg.report.ServerVersion), safeText(msg.report.Protocol), msg.report.ToolCount)
+			m.setStatus("success", "Your Gateway connection is verified.")
 			if msg.kind == "save" && m.sessionOnly {
 				m.status += " API key is available only for this session."
 			}
@@ -302,7 +327,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cancel()
 				m.cancel = nil
 			}
-			m.status = "Canceling operation; its outcome may be unknown..."
+			m.setStatus("warning", "Canceling the operation. It may already have completed; check its result before retrying.")
 			return m, nil
 		}
 		if k == "ctrl+c" {
@@ -316,16 +341,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if k == "esc" && m.busyKind == "tool" && m.cancel != nil {
 				m.cancel()
 				m.cancel = nil
-				m.status = "Canceling operation; its outcome may be unknown..."
+				m.setStatus("warning", "Canceling the operation. It may already have completed; check its result before retrying.")
 				return m, nil
 			}
 			if k == "esc" && m.cancel != nil {
 				if m.busyKind == "remove" {
-					m.status = "Finishing credential removal..."
+					m.setStatus("working", "Finishing API key removal…")
 				} else {
 					m.cancel()
 					m.apiKey.SetValue("")
-					m.status = "Canceling connection check..."
+					m.setStatus("warning", "Canceling the connection check…")
 				}
 			}
 			return m, nil
@@ -380,7 +405,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.cursor {
 			case 0:
 				if !m.configured {
-					m.status = "Configure a Gateway and API key in Settings first."
+					m.setStatus("warning", "Add a Gateway address and API key in Settings first.")
 					cmd := m.openSettings()
 					return m, cmd
 				}
@@ -443,10 +468,10 @@ func (m model) settingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.closeSettings()
 		return m, nil
-	case "tab":
+	case "down":
 		m.focus = (m.focus + 1) % 8
 		return m, m.focusInput()
-	case "shift+tab":
+	case "up":
 		m.focus = (m.focus + 7) % 8
 		return m, m.focusInput()
 	case "enter":

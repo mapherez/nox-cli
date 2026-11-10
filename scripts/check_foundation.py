@@ -82,7 +82,7 @@ def terminal_check(binary, action):
             while b"Gateway:" not in output:
                 assert time.monotonic() < deadline, "Settings did not open"
                 receive(0.1)
-            os.write(master, b"\tprivate-test-secret")
+            os.write(master, b"\x1b[Bprivate-test-secret")
             deadline = time.monotonic() + 1
             while time.monotonic() < deadline:
                 receive(0.05)

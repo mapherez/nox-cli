@@ -35,12 +35,12 @@ func (m *model) startInteraction() tea.Cmd {
 		return nil
 	}
 	if m.detailAction.Problem != "" {
-		m.status = m.detailAction.Problem
+		m.setStatus("error", m.detailAction.Problem)
 		return nil
 	}
 	run, err := interaction.New(*m.catalog, m.detailAction.Alias)
 	if err != nil {
-		m.status = err.Error()
+		m.setStatus("error", err.Error())
 		return nil
 	}
 	m.activeRun = run
@@ -151,7 +151,7 @@ func (m *model) startToolCall() tea.Cmd {
 		case <-root.Done():
 		}
 	}()
-	m.status = "Working through Gateway..."
+	m.setStatus("working", "Running your action through Gateway…")
 	return m.awaitToolEvent()
 }
 func (m model) awaitToolEvent() tea.Cmd {
@@ -174,9 +174,9 @@ func (m model) interactionEvent(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.cancel == nil {
 			return m, m.awaitToolEvent()
 		}
-		m.status = m.redact(safeText(event.message))
+		m.setStatus("working", m.redact(safeText(event.message)))
 		if m.status == "" {
-			m.status = "Working through Gateway..."
+			m.setStatus("working", "Running your action through Gateway…")
 		}
 		return m, m.awaitToolEvent()
 	case callFinished:
@@ -202,7 +202,9 @@ func (m model) interactionEvent(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clearCatalog()
 			m.configured = false
 			m.detailAction = nil
-			m.status = event.err.Error()
+			m.setStatus("error", event.err.Error())
+			m.lastReport = nil
+			m.connectionIssue = "API key required or rejected"
 			cmd := m.openSettings()
 			return m, cmd
 		}
@@ -211,9 +213,13 @@ func (m model) interactionEvent(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tree = navigation.Tree{}
 			m.detailAction = nil
 		}
-		m.status = "Operation finished."
+		m.statusKind = ""
+		m.status = ""
+		if m.activeRun.Mode == "done" {
+			m.setStatus("success", "The action completed successfully.")
+		}
 		if m.activeRun.Mode == "error" {
-			m.status = m.redact(m.activeRun.Problem)
+			m.setStatus("error", m.redact(m.activeRun.Problem))
 		}
 		cmd := m.syncInteraction()
 		return m, cmd
@@ -320,9 +326,19 @@ func (m model) interactionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if f == nil {
 		return m, nil
 	}
-	if k == "shift+tab" {
-		r.Back()
-		return m, m.syncInteraction()
+	// Left returns to the previous field at the start of an editor. Elsewhere,
+	// arrows retain their normal text-cursor behavior.
+	if k == "left" {
+		choices := f.Control == "select" || f.Control == "multiselect" || f.Control == "checkbox"
+		atStart := m.formValue.Position() == 0
+		if f.Control == "textarea" || f.Control == "json" {
+			info := m.formArea.LineInfo()
+			atStart = m.formArea.Line() == 0 && info.StartColumn == 0 && info.CharOffset == 0
+		}
+		if r.Index > 0 && (choices || atStart) {
+			r.Back()
+			return m, m.syncInteraction()
+		}
 	}
 	if k == "ctrl+u" {
 		if err := r.Set(nil, false); err != nil {
@@ -477,7 +493,7 @@ func (m model) reviewText() string {
 	if message := r.ConfirmationMessage(); message != "" {
 		lines = append(lines, "", message)
 	}
-	lines = append(lines, "", "Enter executes this reviewed step. Ctrl+E edits inputs. Esc cancels.")
+	lines = append(lines, "", "This action requires your confirmation.")
 	return m.redact(safeParagraph(strings.Join(lines, "\n")))
 }
 func (m model) resultText() string {
@@ -522,29 +538,27 @@ func (m model) resultText() string {
 			}
 		}
 	}
-	lines = append(lines, "", "Esc returns to the tool. R refreshes menus. No operation is retried automatically.")
+	lines = append(lines, "", "No operation is retried automatically.")
 	return m.redact(safeParagraph(strings.Join(lines, "\n")))
 }
-func (m model) interactionLines() ([]string, int, string) {
+func (m model) interactionLines() ([]string, int) {
 	r := m.activeRun
 	switch r.Mode {
 	case "pending":
-		return []string{"Working through Gateway...", "", m.redact(safeText(m.status)), "", "Esc or Ctrl+C cancels; a write may still have completed."}, 0, "Esc / Ctrl+C: Cancel"
+		return []string{"An operation is in progress.", "", "A canceled write may already have completed."}, 0
 	case "review":
 		lines := strings.Split(m.detail.View(), "\n")
 		if r.TypedConfirmation() {
 			lines = append([]string{m.confirmValue.View(), ""}, lines...)
 		}
-		if m.formError != "" {
-			lines = append([]string{m.palette().accent.Render(safeText(m.formError)), ""}, lines...)
-		}
-		return lines, 0, "Enter: Confirm / Execute  Ctrl+E: Edit  Up/Down: Scroll  Esc: Cancel"
+
+		return lines, 0
 	case "done", "error":
-		return strings.Split(m.detail.View(), "\n"), 0, "Up/Down / PgUp/PgDn: Scroll  Esc: Back  R: Refresh"
+		return strings.Split(m.detail.View(), "\n"), 0
 	case "input":
 		f := r.Current()
 		if f == nil {
-			return []string{"No input available."}, 0, "Esc: Back"
+			return []string{"No input available."}, 0
 		}
 		kind := "optional"
 		if r.Required(*f) {
@@ -580,18 +594,8 @@ func (m model) interactionLines() ([]string, int, string) {
 		} else {
 			lines = append(lines, m.formValue.View())
 		}
-		if m.formError != "" {
-			lines = append([]string{safeText(m.formError), ""}, lines...)
-			focus += 2
-		}
-		footer := "Enter: Next  Ctrl+U: Omit optional  Shift+Tab: Previous  Esc: Cancel"
-		if f.Control == "multiselect" {
-			footer = "Space: Toggle  Enter: Next  Type: Filter  Ctrl+U: Omit  Esc: Cancel"
-		}
-		if f.Control == "textarea" || f.Control == "json" {
-			footer = "Ctrl+D: Next  Ctrl+U: Omit optional  Shift+Tab: Previous  Esc: Cancel"
-		}
-		return lines, focus, footer
+
+		return lines, focus
 	}
-	return []string{"Unsupported interaction."}, 0, "Esc: Back"
+	return []string{"Unsupported interaction."}, 0
 }
