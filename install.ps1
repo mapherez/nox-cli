@@ -1,4 +1,5 @@
 # Download/verify the official Windows payload; native code owns activation.
+param([ValidateSet('Install','Uninstall')][string]$Action = 'Install', [switch]$Purge)
 $ErrorActionPreference = 'Stop'
 if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA is unavailable.' }
 $root = Join-Path $env:LOCALAPPDATA 'nox-cli'
@@ -24,6 +25,17 @@ try {
     $pidBytes = [Text.Encoding]::UTF8.GetBytes([string]$PID)
     $lock.Write($pidBytes, 0, $pidBytes.Length)
     $lock.Flush()
+    $pendingPath = Join-Path $stage 'update-pending.json'
+    if (Test-Path -LiteralPath $pendingPath) {
+        if ((Get-Item -LiteralPath $pendingPath).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Refusing a linked update record.' }
+        $pending = Get-Content -LiteralPath $pendingPath -Raw | ConvertFrom-Json
+        if ($pending.product -ne 'nox-cli') { throw 'Invalid update record.' }
+        foreach ($owner in @($pending.parentPid, $pending.helperPid)) {
+            if ($owner -and (Get-Process -Id $owner -ErrorAction SilentlyContinue)) { throw 'A CLI update is still finishing. Wait briefly before reinstalling.' }
+        }
+        Remove-Item -LiteralPath $pendingPath
+        Remove-Item -LiteralPath (Join-Path $stage 'update-helper.ps1') -ErrorAction SilentlyContinue
+    }
     foreach ($file in @($payload, $checksums, $executable)) {
         if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file }
     }
@@ -33,8 +45,9 @@ try {
     $asset = "nox-cli_windows_${architecture}.zip"
     $release = 'https://github.com/mapherez/nox-cli/releases/latest/download'
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -UseBasicParsing -Uri "$release/$asset" -OutFile $payload
-    Invoke-WebRequest -UseBasicParsing -Uri "$release/checksums.txt" -OutFile $checksums
+    Invoke-WebRequest -UseBasicParsing -Uri "$release/$asset" -OutFile $payload -TimeoutSec 120
+    Invoke-WebRequest -UseBasicParsing -Uri "$release/checksums.txt" -OutFile $checksums -TimeoutSec 60
+    if ((Get-Item -LiteralPath $payload).Length -gt 67108864 -or (Get-Item -LiteralPath $checksums).Length -gt 65536) { throw 'Release download is too large.' }
     $matchesForAsset = @([IO.File]::ReadAllLines($checksums) | Where-Object { $_ -match ('^[a-fA-F0-9]{64}\s+\*?' + [regex]::Escape($asset) + '$') })
     if ($matchesForAsset.Count -ne 1) { throw 'Invalid release checksum.' }
     $expected = ($matchesForAsset[0] -split '\s+')[0]
@@ -43,17 +56,21 @@ try {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [IO.Compression.ZipFile]::OpenRead($payload)
     try {
-        if ($archive.Entries.Count -ne 1 -or $archive.Entries[0].FullName -ne 'nox.exe') { throw 'Unexpected release archive contents.' }
+        if ($archive.Entries.Count -ne 1 -or $archive.Entries[0].FullName -ne 'nox.exe' -or $archive.Entries[0].Length -le 0 -or $archive.Entries[0].Length -gt 268435456) { throw 'Unexpected release archive contents.' }
         $entry = $archive.Entries[0].Open()
         try {
             $target = [IO.File]::Open($executable, [IO.FileMode]::CreateNew)
             try { $entry.CopyTo($target) } finally { $target.Dispose() }
         } finally { $entry.Dispose() }
     } finally { $archive.Dispose() }
-    & $executable --complete-install
-    if ($LASTEXITCODE -ne 0) { throw 'Native installation did not complete.' }
+    if ($Action -eq 'Uninstall') {
+        if ($Purge) { & $executable --complete-uninstall --purge }
+        else { & $executable --complete-uninstall }
+    } else { & $executable --complete-install }
+    if ($LASTEXITCODE -ne 0) { throw 'Native maintenance did not complete.' }
+    if ($Action -eq 'Uninstall') { Write-Output 'NoX CLI removed. Open a new terminal to refresh PATH.' }
 } catch {
-    throw 'NoX CLI installation failed. Check release availability, connectivity, and whether another nox command is installed.'
+    throw 'NoX CLI maintenance failed. Close running CLI processes and check release availability or edited installation/PATH files.'
 } finally {
     if ($null -ne $lock) {
         $lock.Dispose()

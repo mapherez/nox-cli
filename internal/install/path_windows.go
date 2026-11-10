@@ -112,3 +112,35 @@ func (p windowsPaths) Apply(edit pathEdit, reverse bool) error {
 	}
 	return nil
 }
+
+func (p windowsPaths) Removal(root string, state ownership) ([]pathEdit, error) {
+	added := false
+	for _, hook := range state.Hooks {
+		if hook.Added {
+			if hook.Target != "HKCU/Environment/Path" {
+				return nil, ErrInstall
+			}
+			added = true
+		}
+	}
+	if !added {
+		return nil, nil
+	}
+	before, kind, err := p.userPath()
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.Split(before, ";")
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		expanded, err := registry.ExpandString(strings.Trim(part, `"`))
+		if err != nil {
+			expanded = part
+		}
+		if strings.EqualFold(filepath.Clean(expanded), filepath.Clean(root)) {
+			continue
+		}
+		kept = append(kept, part)
+	}
+	return []pathEdit{{Target: "HKCU/Environment/Path", Before: []byte(before), After: []byte(strings.Join(kept, ";")), Existed: kind != 0, Mode: 0600, ValueType: kind}}, nil
+}

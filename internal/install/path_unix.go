@@ -19,6 +19,13 @@ func nativePaths(home string) pathManager {
 	return &shellPaths{home: home, shell: filepath.Base(os.Getenv("SHELL"))}
 }
 
+func shellBlocks(root string) (string, string) {
+	quoted := "'" + strings.ReplaceAll(root, "'", "'\\''") + "'"
+	legacy := pathStart + "\nexport PATH=" + quoted + ":\"$PATH\"\n" + pathEnd
+	block := pathStart + "\ncase \":$PATH:\" in\n  *:" + quoted + ":*) ;;\n  *) export PATH=" + quoted + ":\"$PATH\" ;;\nesac\n" + pathEnd
+	return block, legacy
+}
+
 func (p *shellPaths) Prepare(root string) ([]pathEdit, error) {
 	p.stage = filepath.Join(root, "install")
 	if strings.Contains(root, ":") {
@@ -41,8 +48,7 @@ func (p *shellPaths) Prepare(root string) ([]pathEdit, error) {
 	default:
 		return nil, errors.New("The installer supports Bash and Zsh on this platform. No shell configuration was changed.")
 	}
-	quoted := "'" + strings.ReplaceAll(root, "'", "'\\''") + "'"
-	block := pathStart + "\nexport PATH=" + quoted + ":\"$PATH\"\n" + pathEnd
+	block, legacy := shellBlocks(root)
 	var edits []pathEdit
 	for _, target := range targets {
 		original, err := readRegular(target)
@@ -60,10 +66,11 @@ func (p *shellPaths) Prepare(root string) ([]pathEdit, error) {
 		}
 		text := string(original)
 		if strings.Contains(text, pathStart) || strings.Contains(text, pathEnd) {
-			if strings.Count(text, pathStart) != 1 || strings.Count(text, pathEnd) != 1 || !strings.Contains(text, block) {
+			if strings.Count(text, pathStart) != 1 || strings.Count(text, pathEnd) != 1 || (!strings.Contains(text, block) && !strings.Contains(text, legacy)) {
 				return nil, errors.New("An existing NoX CLI PATH block has changed. No shell configuration was replaced.")
 			}
-			edits = append(edits, pathEdit{Target: target, Before: original, After: original, Existed: exists, Mode: mode})
+			updated := strings.Replace(text, legacy, block, 1)
+			edits = append(edits, pathEdit{Target: target, Before: original, After: []byte(updated), Existed: exists, Mode: mode})
 			continue
 		}
 		if text != "" && !strings.HasSuffix(text, "\n") {
@@ -94,4 +101,47 @@ func (p *shellPaths) Apply(edit pathEdit, reverse bool) error {
 		return nil
 	}
 	return writeStaged(p.stage, edit.Target, data, edit.Mode)
+}
+
+func (p *shellPaths) Removal(root string, state ownership) ([]pathEdit, error) {
+	p.stage = filepath.Join(root, "install")
+	block, legacy := shellBlocks(root)
+	allowed := map[string]bool{}
+	for _, name := range []string{".zshrc", ".zprofile", ".bashrc", ".bash_profile", ".bash_login", ".profile"} {
+		allowed[filepath.Join(p.home, name)] = true
+	}
+	var edits []pathEdit
+	for _, hook := range state.Hooks {
+		if !hook.Added {
+			continue
+		}
+		if !allowed[hook.Target] {
+			return nil, ErrInstall
+		}
+		raw, err := readRegular(hook.Target)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil || len(raw) > 1<<20 {
+			return nil, ErrInstall
+		}
+		text := string(raw)
+		if !strings.Contains(text, pathStart) && !strings.Contains(text, pathEnd) {
+			continue
+		}
+		if strings.Count(text, pathStart) != 1 || strings.Count(text, pathEnd) != 1 || (!strings.Contains(text, block) && !strings.Contains(text, legacy)) {
+			return nil, errors.New("The NoX CLI PATH block was edited. Restore its original marked block before uninstalling; no files were removed.")
+		}
+		info, _ := os.Stat(hook.Target)
+		currentBlock := block
+		if !strings.Contains(text, currentBlock) {
+			currentBlock = legacy
+		}
+		after := strings.Replace(text, currentBlock+"\n", "", 1)
+		if after == text {
+			after = strings.Replace(text, currentBlock, "", 1)
+		}
+		edits = append(edits, pathEdit{Target: hook.Target, Before: raw, After: []byte(after), Existed: true, Mode: info.Mode().Perm()})
+	}
+	return edits, nil
 }

@@ -19,7 +19,9 @@ import (
 	"github.com/mapherez/nox-cli/internal/credentials"
 	"github.com/mapherez/nox-cli/internal/gateway"
 	"github.com/mapherez/nox-cli/internal/interaction"
+	"github.com/mapherez/nox-cli/internal/maintenance"
 	"github.com/mapherez/nox-cli/internal/navigation"
+	"github.com/mapherez/nox-cli/internal/releases"
 	"github.com/mapherez/nox-cli/internal/setup"
 )
 
@@ -33,6 +35,12 @@ type checkedMsg struct {
 }
 
 type model struct {
+	maintenanceScroll                                              int
+	updater                                                        *maintenance.Manager
+	maintenancePage, showUninstall, confirmUpdate, releaseChecking bool
+	maintenanceFocus                                               int
+	latestVersion, releaseStatus, exitNotice                       string
+
 	activeRun               *interaction.Run
 	detailAction            *navigation.Action
 	formValue, confirmValue textinput.Model
@@ -76,7 +84,7 @@ func newModel(ctx context.Context, version string, manager *setup.Manager) model
 	search.Prompt = "Search: "
 	search.Placeholder = "Filter this menu"
 	search.CharLimit = 120
-	m := model{ctx: ctx, version: version, width: 80, height: 24, dark: true, manager: manager, origin: address, apiKey: secret, search: search,
+	m := model{ctx: ctx, version: version, updater: maintenance.New(manager.Store.Root, version), width: 80, height: 24, dark: true, manager: manager, origin: address, apiKey: secret, search: search,
 		formValue: textinput.New(), confirmValue: textinput.New(), formArea: textarea.New(),
 		cursor: 1, status: "Not configured", detail: viewport.New()}
 	m.detail.SoftWrap = true
@@ -94,10 +102,18 @@ func newModel(ctx context.Context, version string, manager *setup.Manager) model
 			m.status = "API key configured. Open Apps to load the catalog."
 		}
 	}
+	if notice := m.updater.Result(); notice != "" {
+		m.status += " " + safeText(notice)
+	}
 	return m
 }
 
-func (m model) Init() tea.Cmd { return tea.RequestBackgroundColor }
+func (m model) Init() tea.Cmd {
+	if releases.Version(m.version) {
+		return tea.Batch(tea.RequestBackgroundColor, m.checkRelease(false))
+	}
+	return tea.RequestBackgroundColor
+}
 func (m *model) focusInput() tea.Cmd {
 	m.origin.Blur()
 	m.apiKey.Blur()
@@ -178,6 +194,30 @@ func (m *model) operation(kind string) tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case releaseMsg:
+		m.releaseChecking = false
+		m.latestVersion = msg.check.Latest
+		if msg.err != nil {
+			m.releaseStatus = "Update check unavailable. Suite access is unaffected; try again later."
+		} else if !releases.Version(m.version) && m.latestVersion != "" {
+			m.releaseStatus = "Latest stable release: " + m.latestVersion + ". Source builds are not replaced."
+		} else if releases.Newer(m.latestVersion, m.version) {
+			m.releaseStatus = "Update " + m.latestVersion + " is available."
+		} else {
+			m.releaseStatus = "No newer stable release is available."
+		}
+		return m, nil
+	case updatedMsg:
+		m.busy = false
+		m.cancel = nil
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			return m, nil
+		}
+		m.exitNotice = "NoX CLI update prepared. Run nox again to use the updated version."
+		m.apiKey.SetValue("")
+		return m, tea.Quit
+
 	case callProgress, callFinished:
 		return m.interactionEvent(msg)
 	case checkedMsg:
@@ -293,6 +333,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeRun != nil {
 			return m.interactionKey(msg)
 		}
+		if m.maintenancePage {
+			return m.maintenanceKey(msg)
+		}
 		if m.settings {
 			return m.settingsKey(msg)
 		}
@@ -401,10 +444,10 @@ func (m model) settingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.closeSettings()
 		return m, nil
 	case "tab":
-		m.focus = (m.focus + 1) % 7
+		m.focus = (m.focus + 1) % 8
 		return m, m.focusInput()
 	case "shift+tab":
-		m.focus = (m.focus + 6) % 7
+		m.focus = (m.focus + 7) % 8
 		return m, m.focusInput()
 	case "enter":
 		switch m.focus {
@@ -419,8 +462,13 @@ func (m model) settingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.operation("test")
 		case 5:
 			m.confirmRemove = true
-		case 6:
+		case 7:
 			m.closeSettings()
+		case 6:
+			m.maintenancePage = true
+			m.maintenanceFocus = 0
+			m.origin.Blur()
+			m.apiKey.Blur()
 		}
 		return m, nil
 	case "space":
@@ -596,7 +644,10 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, version string)
 	if err != nil {
 		return err
 	}
-	_, err = tea.NewProgram(newModel(ctx, version, setup.New(root, version)), tea.WithContext(ctx), tea.WithInput(input), tea.WithOutput(output)).Run()
+	final, err := tea.NewProgram(newModel(ctx, version, setup.New(root, version)), tea.WithContext(ctx), tea.WithInput(input), tea.WithOutput(output)).Run()
+	if result, ok := final.(model); ok && result.exitNotice != "" {
+		fmt.Fprintln(output, result.exitNotice)
+	}
 	if errors.Is(err, tea.ErrInterrupted) {
 		return context.Canceled
 	}

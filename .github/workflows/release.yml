@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nox-cli-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v6
+        with:
+          name: release-dist
+          path: dist
+      - name: Verify release tag and packaged assets
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$(git rev-parse HEAD)"
+          python scripts/build_release.py --output dist --verify
+      - name: Create draft and upload complete assets before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft > release-state.json 2>/dev/null; then
+            python -c 'import json; assert json.load(open("release-state.json"))["isDraft"], "Release already published; no assets were overwritten."'
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "NoX CLI $RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest

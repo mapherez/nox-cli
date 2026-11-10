@@ -1,0 +1,58 @@
+name: Publish installer endpoints
+
+# One-time Pages/domain setup is documented in README; publication is owner-triggered.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published stable CLI release tag (vX.Y.Z)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nox-cli-installer-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Fetch and verify scripts from the selected published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.version }}
+        run: |
+          python -c 'import os,re; assert re.fullmatch(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)",os.environ["RELEASE_TAG"])'
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = false
+          mkdir site
+          gh release download "$RELEASE_TAG" --dir site --pattern '*.sh' --pattern '*.ps1' --pattern checksums.txt
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root = Path('site')
+          entries = dict(line.split('  ')[::-1] for line in (root / 'checksums.txt').read_text().splitlines())
+          for name in ('install.sh','install.ps1','uninstall.sh','uninstall.ps1'):
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == entries[name]
+          (root / 'checksums.txt').unlink()
+          (root / 'CNAME').write_text('cli.mapherez.com\n')
+          (root / 'index.html').write_text('<!doctype html><title>NoX CLI installers</title><p>See the <a href="https://github.com/mapherez/nox-cli#installation">NoX CLI README</a> for installation and removal.</p>')
+          PY
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
+        id: deployment

@@ -2,7 +2,7 @@
 
 Date: November 4, 2026
 
-Status: Stages 1–3 were owner-accepted, including real Gateway discovery (38 tools), menu navigation and the final visual refinement. Stage 4 — Discovery and execution is implemented and locally verified, pending owner review. Stages 5–6 have not started. Remote CI, CLI releases and hosted installer publication remain pending.
+Status: Stage 6 — Update and uninstall has a source implementation and local verification, awaiting owner review. Stages 1–3 were owner-accepted; Stage 4 has a source implementation and local checks. Stage 5 has owner-reported Yard status and Backend v1.2.2 service-status execution. Yard menu interaction work is deferred at the owner's direction. Remote CI, native Windows/Linux execution, releases and hosted installer publication are not claimed by the local Stage 6 record.
 
 ## 1. Purpose, scope, and source of decisions
 
@@ -520,3 +520,91 @@ Local evidence on macOS ARM64:
 started. This stage does not certify the installed Gateway/Backend journey or
 implement update/uninstall. No publication, commit, push, release, deployment or
 change to another repository was performed.
+
+
+## 14. Validation record — Stage 5, November 9, 2026
+
+Owner approved starting **Stage 5 — Real Backend validation** after Stage 4.
+The Stage 4 checkpoint above records the state at that earlier checkpoint.
+
+Current status: **in progress; installed acceptance is pending**. The
+[owner-run checklist](STAGE_5_VALIDATION.md) maps the completion gates to the
+published Backend menus and separates read-only checks, disposable data changes,
+credential replacement and interruption checks. No completion gate or agreed
+security rule has changed.
+
+An initial installed attempt reached the public Gateway health endpoint but
+stopped at secure credential access. No successful authenticated discovery or
+Backend tool execution was established. The owner objected to credential access;
+the process was closed. Further installed credential access and operations are
+owner-run unless explicitly authorized separately.
+
+Focused local tests subsequently passed for selectors, confirmation/review,
+workflow failures, cancellation, stale definitions, rejected credentials,
+credential replacement, exact JSON and no mutation replay. They used in-memory
+credentials and disposable loopback peers, without personal credential access
+or installed Suite requests. These are supporting checks, not installed
+acceptance. No new remote CI result is claimed.
+
+The checklist and README now record the current stage. No production behavior,
+Backend/Gateway configuration or credentials were changed. Stage 6 has not started.
+
+
+## 15. Implementation record — Stage 6, November 10, 2026
+
+The owner explicitly authorized **Stage 6 — Update and uninstall**. Its existing
+name and scope are unchanged. No other product repository, shared contract,
+Gateway authentication, menu schema or business operation was changed by this stage.
+The owner's pre-existing Stage 5 edits were retained.
+
+Implemented:
+
+- Settings has **Updates and installation**, an explicit check/update confirmation,
+  current/latest version information and uninstall instructions. Stable builds
+  check public metadata asynchronously with a 24-hour bound. Source builds never
+  replace themselves. An update indicator is visible in the header/status.
+- Public release HTTP is independent of Gateway credentials, rejects foreign or
+  insecure redirects, uses deadlines/size limits, pins downloads to a stable tag,
+  verifies SHA-256, accepts only the expected regular archive member and checks
+  the candidate's embedded version before activation.
+- Installer ownership binds the current binary hash and PATH hooks. Updates retain
+  configuration and the same native secret slot. The private `install/` directory
+  holds downloads, short-lived rollback/journal state and the Windows exit-waiting
+  helper. Recovery distinguishes a live transaction from interrupted work; it does
+  not replay business calls. Unknown files are not recursively removed.
+- Shell/PowerShell uninstall scripts bootstrap a verified payload independently of
+  the installed binary. Default removal keeps settings/credentials; explicit
+  `--purge` / `-Purge` removes only CLI configuration and `nox-cli/api-key`.
+  A later purge after keep-settings removal is supported. Modified PATH blocks and
+  foreign binaries are refused. Empty profiles created by the installer are removed.
+- Six-target archive/checksum packaging and a tag-triggered Release workflow are
+  implemented. Packaging replaces compile-only cross-build in the release CI run;
+  no additional Suite integration gate was added. Assets are uploaded to a draft
+  before publication. Published releases are not silently overwritten.
+- A separate owner-triggered workflow publishes verified installer scripts to
+  GitHub Pages. Domain/HTTPS setup and actual publication are owner actions,
+  documented in README; no hosted endpoint is asserted to be live.
+
+Local verification on macOS ARM64:
+
+- Full Go race suite, vet, module tidiness/checksums, Go formatting and diff checks.
+- Real managed-executable replacement, invalid-candidate preservation, interrupted
+  update recovery, explicit keep/purge behavior using a fake vault, untouched
+  foreign files, bounded metadata checks and version/checksum/archive rejection.
+- Nine Python installer checks, including actual native install/reinstall/removal
+  in paths with spaces and preserved configuration, without opening a native vault.
+- Compiled help/version and real PTY startup/resize/exit/terminal restoration.
+- All six executable archives, four scripts and complete SHA-256 manifest built
+  and verified with a local fixture version. No tag or release was created.
+- Workflow syntax validated with actionlint 1.7.7.
+
+Native Windows helper and registry-removal tests run in the existing Windows Go
+job; their cross-compilation is not a claim of native execution here. Native Linux
+script tests run in the existing Linux job. Docker was unavailable locally, so
+no Linux container runtime check is claimed. No remote GitHub CI or hosted/domain
+publication was executed. No personal credential store or installed service was
+accessed. No commit, push, tag, release or automatic stage progression occurred.
+
+**Checkpoint:** source work and local verification are reported for owner review;
+completion and the next action remain the owner's decision. The deferred Yard
+interaction work has not been implemented or recorded as accepted by this stage.

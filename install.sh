@@ -2,6 +2,11 @@
 # Download/verify the official payload; the native executable owns activation.
 set -eu
 umask 077
+operation=install
+purge=
+if [ "${1:-}" = --uninstall ]; then operation=uninstall; shift; fi
+if [ "$operation" = uninstall ] && [ "${1:-}" = --purge ]; then purge=--purge; shift; fi
+[ "$#" -eq 0 ] || { echo 'Unsupported installer arguments.' >&2; exit 2; }
 
 case "$(uname -s)" in
   Darwin) platform=darwin; root="$HOME/Library/Application Support/nox-cli" ;;
@@ -14,7 +19,7 @@ case "$(uname -m)" in
   *) echo 'Unsupported CPU architecture.' >&2; exit 1 ;;
 esac
 case "$root" in /*) ;; *) echo 'The installation directory must be absolute.' >&2; exit 1 ;; esac
-for tool in curl tar awk; do command -v "$tool" >/dev/null 2>&1 || { echo "Required system utility is unavailable: $tool" >&2; exit 1; }; done
+for tool in curl tar awk wc; do command -v "$tool" >/dev/null 2>&1 || { echo "Required system utility is unavailable: $tool" >&2; exit 1; }; done
 if command -v sha256sum >/dev/null 2>&1; then hash_tool=sha256sum
 elif command -v shasum >/dev/null 2>&1; then hash_tool=shasum
 else echo 'A SHA-256 utility is required.' >&2; exit 1; fi
@@ -58,10 +63,11 @@ for item in "$stage"/activate-*; do [ ! -e "$item" ] || rm -f "$item"; done
 
 asset="nox-cli_${platform}_${architecture}.tar.gz"
 release='https://github.com/mapherez/nox-cli/releases/latest/download'
-if ! curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' "$release/$asset" -o "$stage/payload.tar.gz" ||
-   ! curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' "$release/checksums.txt" -o "$stage/checksums.txt"; then
+if ! curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 120 "$release/$asset" -o "$stage/payload.tar.gz" ||
+   ! curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 120 "$release/checksums.txt" -o "$stage/checksums.txt"; then
   echo 'Unable to download the CLI release. Check connectivity and whether a release has been published.' >&2; exit 1
 fi
+[ "$(wc -c < "$stage/payload.tar.gz")" -le 67108864 ] && [ "$(wc -c < "$stage/checksums.txt")" -le 65536 ] || { echo 'Release download is too large.' >&2; exit 1; }
 if ! expected=$(awk -v asset="$asset" '$2 == asset || $2 == "*" asset { value=$1; count++ } END { if(count != 1) exit 1; print value }' "$stage/checksums.txt"); then
   echo 'The release checksum entry is missing or duplicated.' >&2; exit 1
 fi
@@ -76,4 +82,10 @@ case "$(tar -tvzf "$stage/payload.tar.gz")" in -*) ;; *) echo 'The release execu
 tar -xzf "$stage/payload.tar.gz" -C "$stage"
 [ -f "$stage/nox" ] && [ ! -L "$stage/nox" ] || { echo 'The release executable is invalid.' >&2; exit 1; }
 chmod 700 "$stage/nox"
-"$stage/nox" --complete-install
+if [ "$operation" = uninstall ]; then
+  if [ -n "$purge" ]; then "$stage/nox" --complete-uninstall --purge
+  else "$stage/nox" --complete-uninstall; fi
+  echo 'NoX CLI removed. Open a new terminal to refresh PATH.'
+else
+  "$stage/nox" --complete-install
+fi

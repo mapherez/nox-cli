@@ -139,5 +139,67 @@ cp "$NOX_CLI_TEST_ASSETS/${url##*/}" "$output"
         self.assertTrue(self.root.is_symlink())
 
 
+@unittest.skipUnless(os.name == 'posix', 'Native POSIX script lifecycle')
+class NativeLifecycleTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.directory = tempfile.TemporaryDirectory(prefix='nox-cli-native-install-')
+        cls.addClassCleanup(cls.directory.cleanup)
+        cls.binary = Path(cls.directory.name) / 'nox'
+        subprocess.run(['go', 'build', '-ldflags',
+                        '-X github.com/mapherez/nox-cli/internal/buildinfo.Version=v0.1.0',
+                        '-o', str(cls.binary), './cmd/nox'], cwd=ROOT, check=True, timeout=120)
+
+    def test_native_install_reinstall_remove_without_running_installed_binary(self):
+        import platform
+        with tempfile.TemporaryDirectory(prefix='nox-cli-lifecycle-') as temporary:
+            base = Path(temporary)
+            home = base / 'user with spaces'
+            home.mkdir()
+            tools, assets = base / 'tools', base / 'assets'
+            tools.mkdir()
+            assets.mkdir()
+            system = 'darwin' if platform.system() == 'Darwin' else 'linux'
+            arch = 'arm64' if platform.machine().lower() in ('arm64', 'aarch64') else 'amd64'
+            asset = assets / f'nox-cli_{system}_{arch}.tar.gz'
+            with tarfile.open(asset, 'w:gz') as archive:
+                archive.add(self.binary, arcname='nox')
+            (assets / 'checksums.txt').write_text(hashlib.sha256(asset.read_bytes()).hexdigest() + '  ' + asset.name + '\n')
+            (assets / 'install.sh').write_bytes((ROOT / 'install.sh').read_bytes())
+            curl = tools / 'curl'
+            curl.write_text('''#!/bin/sh
+while [ "$#" -gt 0 ]; do
+ case "$1" in https://*) url="$1";; -o) shift; output="$1";; esac
+ shift
+done
+case "$url" in https://github.com/mapherez/nox-cli/releases/latest/download/*) ;; *) exit 9;; esac
+cp "$NOX_CLI_TEST_ASSETS/${url##*/}" "$output"
+''')
+            curl.chmod(0o700)
+            env = dict(os.environ, HOME=str(home), XDG_DATA_HOME=str(home / 'data'),
+                       SHELL='/bin/bash', PATH=str(tools) + os.pathsep + os.environ['PATH'],
+                       NOX_CLI_TEST_ASSETS=str(assets))
+            root = home / 'Library/Application Support/nox-cli' if system == 'darwin' else home / 'data/nox-cli'
+            for _ in range(2):
+                installed = subprocess.run(['sh', str(ROOT / 'install.sh')], env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(installed.returncode, 0, installed.stderr)
+                self.assertTrue((root / 'install-state.json').exists())
+                self.assertFalse((root / 'install').exists())
+            self.assertEqual((home / '.bashrc').read_text().count('# >>> nox-cli installer >>>'), 1)
+            # Persist only non-secret data; the default uninstall must never open a vault.
+            (root / 'config.json').write_text('preserved configuration')
+            (root / 'unrelated').write_text('keep me')
+            # A non-executable installed payload still has its verified ownership hash.
+            (root / 'nox').chmod(0o600)
+            removed = subprocess.run(['sh', str(ROOT / 'uninstall.sh')], env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(removed.returncode, 0, removed.stderr)
+            self.assertFalse((root / 'nox').exists())
+            self.assertFalse((root / 'install-state.json').exists())
+            self.assertFalse((root / 'install').exists())
+            self.assertEqual((root / 'config.json').read_text(), 'preserved configuration')
+            self.assertEqual((root / 'unrelated').read_text(), 'keep me')
+            self.assertFalse((home / '.bashrc').exists(), 'Installer-created empty profile was left behind')
+
+
 if __name__ == "__main__":
     unittest.main()

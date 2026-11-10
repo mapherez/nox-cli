@@ -32,7 +32,7 @@ func main() {
     [IO.File]::WriteAllText((Join-Path $assets 'checksums.txt'), "$digest  $asset`n")
     # Keep production URLs unchanged. Only the test session's download command is replaced.
     function Invoke-WebRequest {
-        param([switch]$UseBasicParsing, [string]$Uri, [string]$OutFile)
+        param([switch]$UseBasicParsing, [string]$Uri, [string]$OutFile, [int]$TimeoutSec)
         $prefix = 'https://github.com/mapherez/nox-cli/releases/latest/download/'
         if (-not $Uri.StartsWith($prefix)) { throw 'Unexpected installer source.' }
         Copy-Item -LiteralPath (Join-Path $assets $Uri.Substring($prefix.Length)) -Destination $OutFile

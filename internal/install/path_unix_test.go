@@ -4,6 +4,7 @@ package install
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -91,5 +92,80 @@ func TestPartialShellActivationRestoresActualProfile(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "install-state.json")); !os.IsNotExist(err) {
 		t.Fatal("failed activation kept ownership state")
+	}
+}
+
+func TestUninstallRemovesOnlyUnmodifiedOwnedProfileBlocks(t *testing.T) {
+	root, source := staged(t)
+	home := t.TempDir()
+	profile := filepath.Join(home, ".zshrc")
+	original := "export KEEP_ME=yes\n"
+	_ = os.WriteFile(profile, []byte(original), 0600)
+	p := &shellPaths{home: home, shell: "zsh"}
+	if err := activate(root, source, "v1.0.0", p, missingCommand); err != nil {
+		t.Fatal(err)
+	}
+	if err := remove(root, false, p, &removeVault{}); err != nil {
+		t.Fatal(err)
+	}
+	actual, _ := os.ReadFile(profile)
+	if string(actual) != original {
+		t.Fatal("unrelated profile contents changed")
+	}
+	root, source = staged(t)
+	p = &shellPaths{home: home, shell: "zsh"}
+	if err := activate(root, source, "v1.0.0", p, missingCommand); err != nil {
+		t.Fatal(err)
+	}
+	changed, _ := os.ReadFile(profile)
+	_ = os.WriteFile(profile, []byte(strings.Replace(string(changed), "export PATH=", "export USER_EDIT=", 1)), 0600)
+	if err := remove(root, false, p, &removeVault{}); err == nil {
+		t.Fatal("modified PATH block removed")
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.Base(source))); err != nil {
+		t.Fatal("failed preflight removed executable")
+	}
+}
+
+func TestLoginAndInteractiveProfilesDoNotDuplicatePath(t *testing.T) {
+	root, _ := staged(t)
+	home := t.TempDir()
+	p := &shellPaths{home: home, shell: "zsh"}
+	edits, err := p.Prepare(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, edit := range edits {
+		if err := p.Apply(edit, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("sh", "-c", `. "$1"; . "$2"; printf '%s' "$PATH"`, "path-test", filepath.Join(home, ".zprofile"), filepath.Join(home, ".zshrc"))
+	cmd.Env = append(os.Environ(), "PATH=/usr/bin:/bin")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(out), root) != 1 {
+		t.Fatal("profile loading duplicated the managed PATH entry")
+	}
+}
+
+func TestReinstallRetainsOwnershipWhenChangingShell(t *testing.T) {
+	root, source := staged(t)
+	home := t.TempDir()
+	if err := activate(root, source, "v1.0.0", &shellPaths{home: home, shell: "zsh"}, missingCommand); err != nil {
+		t.Fatal(err)
+	}
+	if err := activate(root, source, "v1.0.0", &shellPaths{home: home, shell: "bash"}, missingCommand); err != nil {
+		t.Fatal(err)
+	}
+	if err := remove(root, false, &shellPaths{home: home, shell: "bash"}, &removeVault{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".zshrc", ".zprofile", ".bashrc", ".profile"} {
+		if _, err := os.Stat(filepath.Join(home, name)); !os.IsNotExist(err) {
+			t.Fatalf("lost ownership of %s", name)
+		}
 	}
 }

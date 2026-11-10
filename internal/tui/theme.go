@@ -5,6 +5,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mapherez/nox-cli/internal/releases"
 )
 
 // Colors follow the terminal background; the CLI does not repaint that background.
@@ -38,6 +39,9 @@ func (m model) divider() string {
 func (m model) header() string {
 	p := m.palette()
 	version := p.muted.Render(safeText(m.version))
+	if releases.Newer(m.latestVersion, m.version) {
+		version += p.secondary.Render(" · Update " + safeText(m.latestVersion))
+	}
 	if m.settings || m.browser || m.width < 50 || m.height < 24 {
 		title := p.accent.Bold(true).Render("NoX") + "  " + version
 		if m.width >= 40 && m.height >= 18 {

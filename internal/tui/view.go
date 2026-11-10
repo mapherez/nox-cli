@@ -13,6 +13,9 @@ import (
 
 func (m model) breadcrumb() string {
 	parts := []string{"Home"}
+	if m.maintenancePage {
+		return "Home / Settings / Updates and installation"
+	}
 	if m.settings {
 		return "Home / Settings"
 	}
@@ -124,7 +127,7 @@ func (m model) settingsLines() ([]string, int) {
 	if m.sessionOnly {
 		checkbox = "[x]"
 	}
-	choices := []string{checkbox + " Use API key only for this session", "Save and test", "Test saved connection", "Remove API key", "Back"}
+	choices := []string{checkbox + " Use API key only for this session", "Save and test", "Test saved connection", "Remove API key", "Updates and installation", "Back"}
 	for i, label := range choices {
 		lines = append(lines, m.menuChoice(label, m.focus == i+2))
 	}
@@ -212,6 +215,12 @@ func (m model) View() tea.View {
 	footer := "Up/Down: Move  Enter: Select  Esc: Exit"
 	if m.activeRun != nil {
 		lines, focus, footer = m.interactionLines()
+	} else if m.maintenancePage {
+		lines, focus = m.maintenanceLines()
+		footer = "Up/Down: Move  Enter: Select  Esc: Back"
+		if m.showUninstall {
+			footer = "Up/Down, PgUp/PgDn: Scroll  Esc: Back"
+		}
 	} else if m.settings {
 		lines, focus = m.settingsLines()
 		footer = "Tab: Next  Shift+Tab: Previous  Enter: Select  Esc: Back"
@@ -233,7 +242,7 @@ func (m model) View() tea.View {
 		}
 		focus = m.cursor
 	}
-	if m.activeRun == nil && m.menuStride() > 1 && !m.busy && (m.settings || !m.browser || (m.catalog != nil && !m.details)) {
+	if (!m.maintenancePage || (!m.showUninstall && !m.confirmUpdate)) && m.activeRun == nil && m.menuStride() > 1 && !m.busy && (m.settings || !m.browser || (m.catalog != nil && !m.details)) {
 		lines, focus = spaceMenuRows(lines, focus)
 	}
 	if m.busy && m.busyKind != "tool" {
@@ -301,7 +310,7 @@ func (m model) View() tea.View {
 	return view
 }
 
-func (m model) statusText() string {
+func (m model) statusBase() string {
 	if m.catalog != nil && !m.busy && strings.HasPrefix(m.status, "Catalog loaded:") {
 		count := len(m.tree.Root.Children)
 		appLabel := "apps"

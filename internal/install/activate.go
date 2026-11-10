@@ -31,8 +31,9 @@ type pathManager interface {
 	Apply(pathEdit, bool) error
 }
 type hookRecord struct {
-	Target string `json:"target"`
-	Added  bool   `json:"added"`
+	Target  string `json:"target"`
+	Added   bool   `json:"added"`
+	Created bool   `json:"created,omitempty"`
 }
 type ownership struct {
 	Schema  int          `json:"schema"`
@@ -47,6 +48,27 @@ type ownership struct {
 func Complete(root, source, version string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
+		return ErrInstall
+	}
+	stage := filepath.Join(root, "install")
+	for _, path := range []string{root, stage} {
+		info, err := os.Lstat(path)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return ErrInstall
+		}
+	}
+	if err := recoverUpdate(root, stage); err != nil {
+		return err
+	}
+	if raw, err := readRegular(filepath.Join(stage, "update-pending.json")); err == nil {
+		var pending pendingUpdate
+		if json.Unmarshal(raw, &pending) != nil || pending.Product != "nox-cli" || pending.Parent <= 0 || processAlive(pending.Parent) || (pending.Helper > 0 && processAlive(pending.Helper)) {
+			return ErrInstall
+		}
+		if os.Remove(filepath.Join(stage, "update-pending.json")) != nil {
+			return ErrInstall
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return ErrInstall
 	}
 	return activate(root, source, version, nativePaths(home), exec.LookPath)
@@ -90,6 +112,9 @@ func activate(root, source, version string, paths pathManager, lookPath func(str
 	} else if binaryErr == nil {
 		return errors.New("The target executable is not owned by the NoX CLI installer.")
 	}
+	if stateErr == nil && binaryErr == nil && digest(priorBinary) != previous.SHA256 {
+		return errors.New("The installed executable has changed outside the installer. No files were replaced.")
+	}
 	if existing, err := lookPath("nox"); err == nil {
 		existing, _ = filepath.Abs(existing)
 		if !samePath(existing, target) {
@@ -108,12 +133,26 @@ func activate(root, source, version string, paths pathManager, lookPath func(str
 	state := ownership{Schema: 1, Product: "nox-cli", Binary: binary, SHA256: hex.EncodeToString(digest[:]), Version: version, Hooks: []hookRecord{}}
 	for _, edit := range edits {
 		added := !bytes.Equal(edit.Before, edit.After)
+		created := !edit.Existed
 		for _, old := range previous.Hooks {
 			if old.Target == edit.Target && old.Added {
 				added = true
+				created = old.Created
 			}
 		}
-		state.Hooks = append(state.Hooks, hookRecord{Target: edit.Target, Added: added})
+		state.Hooks = append(state.Hooks, hookRecord{Target: edit.Target, Added: added, Created: created})
+	}
+	for _, old := range previous.Hooks {
+		present := false
+		for _, current := range state.Hooks {
+			if current.Target == old.Target {
+				present = true
+				break
+			}
+		}
+		if !present {
+			state.Hooks = append(state.Hooks, old)
+		}
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {

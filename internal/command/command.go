@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/mapherez/nox-cli/internal/buildinfo"
@@ -23,11 +26,52 @@ Options:
   --help       Show this help.
   --version    Show version and build information.
 
-Configure a private Gateway in Settings. App navigation is not available yet.
+Configure a private Gateway in Settings, then open Apps.
+Use Settings for updates and installation/removal information.
 `
 
 // Run returns a process exit code. Help/version never require a terminal.
 func Run(ctx context.Context, args []string, input io.Reader, output, diagnostics io.Writer) int {
+	if (len(args) == 2 && args[0] == "--complete-update") || (len(args) >= 1 && len(args) <= 2 && args[0] == "--complete-uninstall") {
+		root, err := config.Root()
+		if err != nil {
+			fmt.Fprintln(diagnostics, install.ErrInstall)
+			return 1
+		}
+		if args[0] == "--complete-update" {
+			source, sourceErr := os.Executable()
+			if sourceErr != nil {
+				return 1
+			}
+			err = install.FinishUpdate(ctx, root, source, args[1], buildinfo.Version)
+		} else {
+			source, sourceErr := os.Executable()
+			binary := "nox"
+			if runtime.GOOS == "windows" {
+				binary += ".exe"
+			}
+			expected := filepath.Join(root, "install", binary)
+			matches := filepath.Clean(source) == expected
+			if runtime.GOOS == "windows" {
+				matches = strings.EqualFold(filepath.Clean(source), expected)
+			}
+			if sourceErr != nil || !matches {
+				fmt.Fprintln(diagnostics, "Use the uninstall script; this executable is not a verified maintenance handoff.")
+				return 1
+			}
+			purge := len(args) == 2 && args[1] == "--purge"
+			if len(args) == 2 && !purge {
+				return 2
+			}
+			err = install.Remove(root, purge)
+		}
+		if err != nil {
+			fmt.Fprintln(diagnostics, err)
+			return 1
+		}
+		fmt.Fprintln(output, "NoX CLI maintenance completed.")
+		return 0
+	}
 	if len(args) == 1 && args[0] == "--complete-install" {
 		root, rootErr := config.Root()
 		source, sourceErr := os.Executable()
@@ -60,6 +104,12 @@ func Run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	if !isTerminal(input) || !isTerminal(output) {
 		fmt.Fprintln(diagnostics, "An interactive terminal is required. Run nox --help or nox --version for non-interactive output.")
 		return 2
+	}
+	if root, err := config.Root(); err == nil {
+		if err := install.Recover(root); err != nil {
+			fmt.Fprintln(diagnostics, err)
+			return 1
+		}
 	}
 	if err := tui.Run(ctx, input, output, buildinfo.Version); err != nil {
 		if errors.Is(err, context.Canceled) {

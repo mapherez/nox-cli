@@ -2,11 +2,14 @@
 
 The human terminal interface for NoX Suite. All UI text is US English (EN-US).
 
-**Current scope: Stage 4 — Discovery and execution.** Published schemas and CLI
-descriptors now drive forms, selectors, previews, confirmations, sequential
-workflows, guarded tool calls and scrollable results. The approved NoX terminal
-style and menu navigation are retained. Installed Backend validation is the next
-checkpoint (Stage 5); no CLI release or hosted installer has been published.
+**Current scope: Stage 6 — Update and uninstall.** Stage 4's schema forms,
+selectors, previews, confirmations, workflows and guarded tool execution are
+implemented. The owner has confirmed Yard status and Backend v1.2.2 service-status
+execution through Gateway. This does not validate all operations. Yard's current
+human interaction design was rejected and further menu work is deferred. See the
+[validation record](STAGE_5_VALIDATION.md) for observed results and checks not run.
+Stage 6 adds Settings updates, script removal and release/hosting workflows.
+No CLI release or hosted installer has been published.
 
 ## Try the current source
 
@@ -183,45 +186,133 @@ Failed candidate validation does not replace existing settings/credentials.
 Persistence failures attempt to restore the previous value in the same slot.
 Cancellation prevents a pending connection check from saving settings.
 
-## Installation foundations
+## Installation
 
-The supported end-user flow will use `install.sh` or `install.ps1`; users will not
-need Go, Node, Rust, Python, Docker or manual archive extraction. **The scripts
-exist in this repository, but no installable release or hosted endpoint exists
-yet.** Do not treat their future URLs as working installation commands.
+Installers, updates, uninstallers and release packaging are implemented in source.
+**No CLI release or installer domain has been published by this work.** The commands
+below become usable after the owner publishes a release and the installer endpoints.
+End users need no Go, Node, Rust, Python, Docker, administrator account or manual
+archive extraction.
 
-Intended endpoints are `https://cli.mapherez.com/install.sh` and `/install.ps1`.
-They download only the official GitHub release payload, verify its checksum,
-extract one executable into `nox-cli/install/`, and call its internal
-`--complete-install` handoff. That flag refuses activation outside the expected
-staging path; it is not another user installation method.
+macOS / Linux (Bash or Zsh):
 
-The release asset contract, to be implemented by Stage 6 packaging, is:
+```sh
+curl -fsSL https://cli.mapherez.com/install.sh | sh
+```
 
-- `nox-cli_<darwin|linux>_<amd64|arm64>.tar.gz`, containing exactly one regular
-  executable named `nox`.
-- `nox-cli_windows_<amd64|arm64>.zip`, containing exactly `nox.exe`.
-- `checksums.txt`, with a SHA-256 entry for each archive.
+Windows PowerShell:
 
-The executable and `install-state.json` live directly in the application directory.
-Downloads and activation files stay under its `install/` subdirectory. Scripts
-clean their files/locks after success, failure or normal interruption, and recover
-stale download staging on rerun. They do not remove unrelated directories/files.
-The ownership record retains PATH ownership across reinstalls.
+```powershell
+& ([scriptblock]::Create((irm https://cli.mapherez.com/install.ps1)))
+```
 
-Installation is per user without elevation. Windows edits only the user PATH.
-macOS/Linux support Bash and Zsh with marked, idempotent profile blocks. Existing
-profile contents are preserved; modified/ambiguous blocks, unsupported shells,
-foreign `nox` commands and unowned executables cause a diagnostic instead of an
-overwrite. Open a new terminal after installation. Profile replacement uses the
-same-filesystem atomic staging operation; if the configured data directory is on
-a different filesystem from the shell profile, installation fails and rolls back
-instead of partially rewriting that profile.
+The script downloads the official GitHub release, verifies its SHA-256 checksum,
+and extracts only the expected native executable. It activates `nox` directly in
+the application directory listed above and makes an owned, idempotent PATH change.
+Open a new terminal after installation. Windows changes only the user PATH;
+macOS/Linux preserve existing Bash/Zsh profile content. A modified PATH block,
+foreign `nox` command, linked target or unowned executable causes a diagnostic.
+Shell profiles and the application root must share a filesystem for atomic edits.
 
-Settings updates, uninstall scripts, the hosted domain, actual release packaging,
-and Windows running-executable replacement are **Stage 6** work. Close a running
-CLI before a Windows reinstall; failed replacement preserves the old executable.
-Installed Backend acceptance is **Stage 5**.
+## Updates
+
+Open **Settings -> Updates and installation**. Stable release builds check public
+release metadata asynchronously at startup, at most once per 24 hours. A newer
+version appears in the status line. **Check for updates** performs an explicit
+refresh; offline checks never block Suite access. Source `dev` builds do not
+check automatically and are never replaced by the updater.
+
+Choose **Install update**, review the version, and confirm. No update is silent.
+The updater rechecks the release, downloads version-pinned assets, verifies their
+checksum and embedded version, and replaces only the installer-owned executable.
+Settings and the single native credential entry are retained. Release requests
+use a separate HTTP client with no Gateway API key, cookies or environment proxy.
+
+NoX closes after a successful update; run `nox` again. Windows uses a short-lived
+PowerShell helper to wait for the current process to exit before replacement.
+There is no update service. The application cannot start an update during an active
+business operation, and no operation is replayed after restart.
+
+Downloads, backup/journal files and the Windows helper live only in `nox-cli/install/`.
+They are removed after success, failure or normal cancellation. An abrupt process
+termination leaves an owned recovery record: the next startup or installer run
+recovers the transaction and cleans its staging. Failed replacement preserves the
+previous executable; unresolved recovery retains its backup rather than deleting it.
+If another installation/update is finishing, wait briefly and run `nox` again.
+`update-check.json` contains only check time/version; Windows `update-result.json`
+contains a non-secret outcome. Neither contains a credential.
+
+## Uninstall
+
+Close other NoX CLI processes. By default, removal retains `config.json` and the
+single native credential so a later reinstall can reuse them.
+
+macOS / Linux:
+
+```sh
+curl -fsSL https://cli.mapherez.com/uninstall.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+& ([scriptblock]::Create((irm https://cli.mapherez.com/uninstall.ps1)))
+```
+
+To explicitly remove configuration and the single owned credential as well:
+
+```sh
+curl -fsSL https://cli.mapherez.com/uninstall.sh | sh -s -- --purge
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://cli.mapherez.com/uninstall.ps1))) -Purge
+```
+
+The uninstaller bootstraps a freshly verified release payload, so the installed
+executable need not work. It removes only recorded executable/PATH ownership and
+known maintenance records; unrelated files are retained. Empty shell profiles
+created by the installer are removed; pre-existing profiles are preserved. Edited
+PATH blocks must be restored before removal rather than silently overwritten.
+Full cleanup deletes only the `nox-cli/api-key` native slot. If the vault refuses
+deletion, the error is reported; no plaintext export or fallback is created.
+Open a new terminal afterward. Scripts do not recursively erase the application
+root: it disappears only when empty. Full cleanup can also run after a prior
+keep-settings uninstall.
+
+## Release and installer publication
+
+Release assets are six archives containing exactly one native executable:
+`nox-cli_<darwin|linux>_<amd64|arm64>.tar.gz` with `nox`, and
+`nox-cli_windows_<amd64|arm64>.zip` with `nox.exe`. The release also contains all four
+installer/uninstaller scripts and a complete `checksums.txt`.
+
+The **Release** workflow runs on an owner-pushed stable `vX.Y.Z` tag. It reuses
+existing native CI checks and builds the six packages in place of that run's
+compile-only cross-build. It does not add any Suite-wide integration gate.
+The selected tag's version/commit/date are embedded in each executable. All assets
+are verified and uploaded to a draft before publication; a failed upload does not
+publish a partial release. No local command here creates a commit, tag or release.
+
+The separate **Publish installer endpoints** workflow is manually triggered with
+a published stable tag. It verifies the four scripts against that release's
+checksums and deploys static files through GitHub Pages. One-time owner setup:
+select **GitHub Actions** as the Pages source, configure `cli.mapherez.com` as its
+custom domain, point its DNS at this repository's GitHub Pages host, and enable
+HTTPS. Then run that workflow for the desired release. No domain, tunnel or hosted
+site is created by running the CLI or its source checks.
+
+For local packaging verification only (not an end-user installation method):
+
+```sh
+python3 scripts/build_release.py --version vX.Y.Z --output dist
+python3 scripts/build_release.py --output dist --verify
+```
+
+The output directory must not already exist. Build outputs are ignored by Git.
+Publishing the scripts/domain and release remains an owner action; these source
+changes do not establish that an installer URL is live or certify a platform's
+native behavior from cross-compilation alone.
 
 ## Development and checks
 
@@ -252,7 +343,9 @@ Implementation boundaries:
 - `internal/credentials`: the single native credential slot and key-format checks.
 - `internal/gateway`: official MCP discovery and the authenticated private transport.
 - `internal/setup`: candidate validation, persistence, replacement and rejection state.
-- `internal/install`: owned executable activation and native PATH changes.
+- `internal/install`: owned activation, transactional replacement/recovery, native PATH changes and removal.
+- `internal/releases`: public metadata, pinned archive download, checksum and extraction limits.
+- `internal/maintenance`: bounded release checks and explicit updates, independent of Suite credentials.
 
 Tests use disposable directories, small official MCP/discovery peers, and explicit installer
 handoff fixtures; they are not fictitious Suite products. Go installer tests
@@ -271,8 +364,11 @@ vault tests, and six-target compilation. The Linux vault check uses a disposable
 encrypted Secret Service inside its own D-Bus session. The race check runs on Linux.
 The native Windows terminal/ConPTY restoration check remains separate from POSIX
 PTY evidence. Compiling another target does not certify its runtime behavior.
-No workflow publishes a release, installer URL, image or domain configuration.
+CI does not publish. The tag-triggered Release workflow and owner-triggered
+installer-hosting workflow perform the separately documented publication steps.
 
 Local/remote/installed evidence is recorded separately in the
-[implementation plan](IMPLEMENTATION_PLAN.md). Stop for Stage 4 owner review before
-starting [Stage 5 — Real Backend validation](IMPLEMENTATION_PLAN.md#stage-5--real-backend-validation).
+[implementation plan](IMPLEMENTATION_PLAN.md). The [Stage 5 record](STAGE_5_VALIDATION.md)
+contains the owner's two confirmed status operations and the checks not reported.
+Yard menu work remains deferred. Local Stage 6 checks use only disposable state;
+they do not claim an actual published release or live hosted installer endpoint.
