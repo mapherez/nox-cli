@@ -13,17 +13,17 @@ AI client ----> Gateway /mcp -------> authorized Suite product
 
 CLI has no incoming listener, Docker integration, product socket access, product registry or Google login provider. It does not expose an MCP server or embed an agent/chat or external-server aggregator. A product's identity, labels, tool paths and schemas are received data; production code does not select behavior by product name.
 
-| Package | Responsibility |
-| --- | --- |
-| `internal/command` | Process startup, supported arguments and internal installer handoffs. |
-| `internal/tui` | Terminal state, keyboard navigation, forms and result presentation. |
-| `internal/navigation` | Generic menu tree built from verified product metadata. |
-| `internal/interaction` | Schema fields, pointer bindings, options, previews and sequential workflows. |
-| `internal/setup` | Validated connection/configuration changes and credential ownership. |
-| `internal/gateway` | Private HTTP transport, MCP negotiation, catalogs and guarded calls. |
-| `internal/config`, `internal/credentials` | Non-secret settings and the native credential store. |
-| `internal/install` | Owned activation, PATH changes, update recovery and removal. |
-| `internal/releases`, `internal/maintenance` | Public release metadata, verified downloads and requested updates. |
+| Package                                     | Responsibility                                                               |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `internal/command`                          | Process startup, supported arguments and internal installer handoffs.        |
+| `internal/tui`                              | Terminal state, keyboard navigation, forms and result presentation.          |
+| `internal/navigation`                       | Generic menu tree built from verified product metadata.                      |
+| `internal/interaction`                      | Schema fields, pointer bindings, options, previews and sequential workflows. |
+| `internal/setup`                            | Validated connection/configuration changes and credential ownership.         |
+| `internal/gateway`                          | Private HTTP transport, MCP negotiation, catalogs and guarded calls.         |
+| `internal/config`, `internal/credentials`   | Non-secret settings and the native credential store.                         |
+| `internal/install`                          | Owned activation, PATH changes, update recovery and removal.                 |
+| `internal/releases`, `internal/maintenance` | Public release metadata, verified downloads and requested updates.           |
 
 The interactive process requires a terminal. `--help` and `--version` work without one; unsupported command arguments fail explicitly. Exit and interruption restore terminal state. Network work is asynchronous so it does not block keyboard handling.
 
@@ -39,11 +39,11 @@ Release/update HTTP uses a separate client and the official-host allowlist. It n
 
 ## Files and credential ownership
 
-| Platform | Application root |
-| --- | --- |
-| Windows | `%LOCALAPPDATA%\nox-cli` |
-| macOS | `~/Library/Application Support/nox-cli` |
-| Linux | `${XDG_DATA_HOME:-$HOME/.local/share}/nox-cli` |
+| Platform | Application root                               |
+| -------- | ---------------------------------------------- |
+| Windows  | `%LOCALAPPDATA%\nox-cli`                       |
+| macOS    | `~/Library/Application Support/nox-cli`        |
+| Linux    | `${XDG_DATA_HOME:-$HOME/.local/share}/nox-cli` |
 
 The executable lives directly under that root. `config.json` stores the origin, configuration schema, credential reference and session-only selection; it contains no API key. `install-state.json` records installer ownership, executable hash and owned PATH hooks. `update-check.json` caches public metadata; `update-result.json` carries a bounded update outcome.
 

@@ -1,7 +1,13 @@
 # Download/verify the official Windows payload; native code owns activation.
-param([ValidateSet('Install','Uninstall')][string]$Action = 'Install', [switch]$Purge)
+param(
+    [ValidateSet('Install','Uninstall')] [string] $Action = 'Install',
+    [switch] $Purge
+)
+
 $ErrorActionPreference = 'Stop'
-if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA is unavailable.' }
+if (-not $env:LOCALAPPDATA) {
+    throw 'LOCALAPPDATA is unavailable.'
+}
 $root = Join-Path $env:LOCALAPPDATA 'nox-cli'
 $stage = Join-Path $root 'install'
 $payload = Join-Path $stage 'payload.zip'
@@ -9,78 +15,168 @@ $checksums = Join-Path $stage 'checksums.txt'
 $executable = Join-Path $stage 'nox.exe'
 $lockPath = Join-Path $stage 'installer.lock'
 $lock = $null
-foreach ($directory in @($root, $stage)) {
-    if ((Test-Path -LiteralPath $directory) -and ((Get-Item -LiteralPath $directory).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+foreach ($directory in @( $root, $stage )) {
+    if (
+        (Test-Path -LiteralPath $directory) -and (
+            (
+                Get-Item -LiteralPath $directory
+            ).Attributes -band [IO.FileAttributes]::ReparsePoint
+        )
+    ) {
         throw 'Refusing a linked installation directory.'
     }
 }
 [IO.Directory]::CreateDirectory($stage) | Out-Null
-if ((Test-Path -LiteralPath $lockPath) -and ((Get-Item -LiteralPath $lockPath).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+if (
+    (Test-Path -LiteralPath $lockPath) -and (
+        (
+            Get-Item -LiteralPath $lockPath
+        ).Attributes -band [IO.FileAttributes]::ReparsePoint
+    )
+) {
     throw 'Refusing a linked installer lock.'
 }
 try {
     # An exclusive handle distinguishes a live installer from a stale/empty file.
-    $lock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    $lock = [IO.File]::Open(
+        $lockPath,
+        [IO.FileMode]::OpenOrCreate,
+        [IO.FileAccess]::ReadWrite,
+        [IO.FileShare]::None
+    )
     $lock.SetLength(0)
-    $pidBytes = [Text.Encoding]::UTF8.GetBytes([string]$PID)
-    $lock.Write($pidBytes, 0, $pidBytes.Length)
+    $pidBytes = [Text.Encoding]::UTF8.GetBytes([string] $PID)
+    $lock.Write( $pidBytes, 0, $pidBytes.Length )
     $lock.Flush()
     $pendingPath = Join-Path $stage 'update-pending.json'
     if (Test-Path -LiteralPath $pendingPath) {
-        if ((Get-Item -LiteralPath $pendingPath).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Refusing a linked update record.' }
+        if (
+            (
+                Get-Item -LiteralPath $pendingPath
+            ).Attributes -band [IO.FileAttributes]::ReparsePoint
+        ) {
+            throw 'Refusing a linked update record.'
+        }
         $pending = Get-Content -LiteralPath $pendingPath -Raw | ConvertFrom-Json
-        if ($pending.product -ne 'nox-cli') { throw 'Invalid update record.' }
-        foreach ($owner in @($pending.parentPid, $pending.helperPid)) {
-            if ($owner -and (Get-Process -Id $owner -ErrorAction SilentlyContinue)) { throw 'A CLI update is still finishing. Wait briefly before reinstalling.' }
+        if ($pending.product -ne 'nox-cli') {
+            throw 'Invalid update record.'
+        }
+        foreach ($owner in @( $pending.parentPid, $pending.helperPid )) {
+            if (
+                $owner -and (
+                    Get-Process -Id $owner -ErrorAction SilentlyContinue
+                )
+            ) {
+                throw 'A CLI update is still finishing. Wait briefly before reinstalling.'
+            }
         }
         Remove-Item -LiteralPath $pendingPath
-        Remove-Item -LiteralPath (Join-Path $stage 'update-helper.ps1') -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (
+            Join-Path $stage 'update-helper.ps1'
+        ) -ErrorAction SilentlyContinue
     }
-    foreach ($file in @($payload, $checksums, $executable)) {
-        if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file }
+    foreach ($file in @( $payload, $checksums, $executable )) {
+        if (Test-Path -LiteralPath $file) {
+            Remove-Item -LiteralPath $file
+        }
     }
     Get-ChildItem -LiteralPath $stage -Filter 'activate-*' -File | Remove-Item
     $architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-    switch ($architecture) { 'x64' { $architecture = 'amd64' } 'arm64' { } default { throw 'Unsupported CPU architecture.' } }
+    switch ($architecture) {
+        'x64' {
+            $architecture = 'amd64'
+        } 'arm64' {} default {
+            throw 'Unsupported CPU architecture.'
+        }
+    }
     $asset = "nox-cli_windows_${architecture}.zip"
     $release = 'https://github.com/mapherez/nox-cli/releases/latest/download'
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -UseBasicParsing -Uri "$release/$asset" -OutFile $payload -TimeoutSec 120
     Invoke-WebRequest -UseBasicParsing -Uri "$release/checksums.txt" -OutFile $checksums -TimeoutSec 60
-    if ((Get-Item -LiteralPath $payload).Length -gt 67108864 -or (Get-Item -LiteralPath $checksums).Length -gt 65536) { throw 'Release download is too large.' }
-    $matchesForAsset = @([IO.File]::ReadAllLines($checksums) | Where-Object { $_ -match ('^[a-fA-F0-9]{64}\s+\*?' + [regex]::Escape($asset) + '$') })
-    if ($matchesForAsset.Count -ne 1) { throw 'Invalid release checksum.' }
+    if (
+        (Get-Item -LiteralPath $payload).Length -gt 67108864 -or (
+            Get-Item -LiteralPath $checksums
+        ).Length -gt 65536
+    ) {
+        throw 'Release download is too large.'
+    }
+    $matchesForAsset = @(
+        [IO.File]::ReadAllLines($checksums) | Where-Object {
+            $_ -match ('^[a-fA-F0-9]{64}\s+\*?' + [regex]::Escape($asset) + '$')
+        }
+    )
+    if ($matchesForAsset.Count -ne 1) {
+        throw 'Invalid release checksum.'
+    }
     $expected = ($matchesForAsset[0] -split '\s+')[0]
     $actual = (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash
-    if ($actual -ne $expected) { throw 'Release checksum verification failed.' }
+    if ($actual -ne $expected) {
+        throw 'Release checksum verification failed.'
+    }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [IO.Compression.ZipFile]::OpenRead($payload)
     try {
-        if ($archive.Entries.Count -ne 1 -or $archive.Entries[0].FullName -ne 'nox.exe' -or $archive.Entries[0].Length -le 0 -or $archive.Entries[0].Length -gt 268435456) { throw 'Unexpected release archive contents.' }
+        if (
+            $archive.Entries.Count -ne 1 -or $archive.Entries[
+                0
+            ].FullName -ne 'nox.exe' -or $archive.Entries[
+                0
+            ].Length -le 0 -or $archive.Entries[0].Length -gt 268435456
+        ) {
+            throw 'Unexpected release archive contents.'
+        }
         $entry = $archive.Entries[0].Open()
         try {
-            $target = [IO.File]::Open($executable, [IO.FileMode]::CreateNew)
-            try { $entry.CopyTo($target) } finally { $target.Dispose() }
-        } finally { $entry.Dispose() }
-    } finally { $archive.Dispose() }
+            $target = [IO.File]::Open( $executable, [IO.FileMode]::CreateNew )
+            try {
+                $entry.CopyTo($target)
+            } finally {
+                $target.Dispose()
+            }
+        } finally {
+            $entry.Dispose()
+        }
+    } finally {
+        $archive.Dispose()
+    }
     if ($Action -eq 'Uninstall') {
-        if ($Purge) { & $executable --complete-uninstall --purge }
-        else { & $executable --complete-uninstall }
-    } else { & $executable --complete-install }
-    if ($LASTEXITCODE -ne 0) { throw 'Native maintenance did not complete.' }
-    if ($Action -eq 'Uninstall') { Write-Output 'NoX CLI removed. Open a new terminal to refresh PATH.' }
+        if ($Purge) {
+            & $executable --complete-uninstall --purge
+        }
+        else {
+            & $executable --complete-uninstall
+        }
+    } else {
+        & $executable --complete-install
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Native maintenance did not complete.'
+    }
+    if ($Action -eq 'Uninstall') {
+        Write-Output 'NoX CLI removed. Open a new terminal to refresh PATH.'
+    }
 } catch {
     throw 'NoX CLI maintenance failed. Close running CLI processes and check release availability or edited installation/PATH files.'
 } finally {
     if ($null -ne $lock) {
         $lock.Dispose()
-        foreach ($file in @($payload, $checksums, $executable)) {
-            if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -ErrorAction SilentlyContinue }
+        foreach ($file in @( $payload, $checksums, $executable )) {
+            if (Test-Path -LiteralPath $file) {
+                Remove-Item -LiteralPath $file -ErrorAction SilentlyContinue
+            }
         }
-        Get-ChildItem -LiteralPath $stage -Filter 'activate-*' -File -ErrorAction SilentlyContinue | Remove-Item -ErrorAction SilentlyContinue
+        Get-ChildItem -LiteralPath $stage -Filter 'activate-*' -File -ErrorAction SilentlyContinue
+            | Remove-Item -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $lockPath -ErrorAction SilentlyContinue
-        foreach ($directory in @($stage, $root)) {
-            if ((Test-Path -LiteralPath $directory) -and ([IO.Directory]::GetFileSystemEntries($directory).Length -eq 0)) {
+        foreach ($directory in @( $stage, $root )) {
+            if (
+                (Test-Path -LiteralPath $directory) -and (
+                    [IO.Directory]::GetFileSystemEntries(
+                        $directory
+                    ).Length -eq 0
+                )
+            ) {
                 [IO.Directory]::Delete($directory)
             }
         }

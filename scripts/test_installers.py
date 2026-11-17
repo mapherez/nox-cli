@@ -3,6 +3,7 @@
 The fixture executable checks the native handoff only. Go tests exercise actual
 activation/PATH edits in isolated directories; these are not installed releases.
 """
+
 import hashlib
 import io
 import os
@@ -16,7 +17,9 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 
 
-@unittest.skipUnless(os.name == "posix", "POSIX installer; Windows has its own native checks")
+@unittest.skipUnless(
+    os.name == "posix", "POSIX installer; Windows has its own native checks"
+)
 class InstallerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="nox-cli-installer-test-")
@@ -29,11 +32,20 @@ class InstallerTests(unittest.TestCase):
         self.marker = self.base / "activation-marker"
         self.data = self.base / "data with spaces"
         self.root = self.data / "nox-cli"
-        self.env = dict(os.environ, XDG_DATA_HOME=str(self.data), SHELL="/bin/bash",
-                        NOX_CLI_TEST_ASSETS=str(self.assets), NOX_CLI_TEST_ACTIVATED=str(self.marker))
+        self.env = dict(
+            os.environ,
+            XDG_DATA_HOME=str(self.data),
+            SHELL="/bin/bash",
+            NOX_CLI_TEST_ASSETS=str(self.assets),
+            NOX_CLI_TEST_ACTIVATED=str(self.marker),
+        )
         self.env["PATH"] = str(self.tools) + os.pathsep + self.env["PATH"]
-        self.tool("uname", '#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo x86_64;; esac\n')
-        self.tool("curl", r'''#!/bin/sh
+        self.tool(
+            "uname", '#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo x86_64;; esac\n'
+        )
+        self.tool(
+            "curl",
+            r"""#!/bin/sh
 while [ "$#" -gt 0 ]; do
  case "$1" in https://*) url="$1";; -o) shift; output="$1";; esac
  shift
@@ -45,7 +57,8 @@ if [ "${NOX_CLI_TEST_INTERRUPT:-}" = 1 ]; then
  exit 1
 fi
 cp "$NOX_CLI_TEST_ASSETS/${url##*/}" "$output"
-''')
+""",
+        )
         self.archive()
 
     def tool(self, name, content):
@@ -72,8 +85,14 @@ cp "$NOX_CLI_TEST_ASSETS/${url##*/}" "$output"
         (self.assets / "checksums.txt").write_text(checksum + "  " + path.name + "\n")
 
     def run_installer(self):
-        return subprocess.run(["sh", str(ROOT / "install.sh")], cwd=self.base, env=self.env,
-                              capture_output=True, text=True, timeout=15)
+        return subprocess.run(
+            ["sh", str(ROOT / "install.sh")],
+            cwd=self.base,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
 
     def clean(self):
         self.assertFalse(self.root.exists(), "owned installer staging was left behind")
@@ -85,7 +104,9 @@ cp "$NOX_CLI_TEST_ASSETS/${url##*/}" "$output"
         self.clean()
 
     def test_bad_checksum_never_executes(self):
-        (self.assets / "checksums.txt").write_text("0" * 64 + "  nox-cli_linux_amd64.tar.gz\n")
+        (self.assets / "checksums.txt").write_text(
+            "0" * 64 + "  nox-cli_linux_amd64.tar.gz\n"
+        )
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.marker.exists())
@@ -139,66 +160,115 @@ cp "$NOX_CLI_TEST_ASSETS/${url##*/}" "$output"
         self.assertTrue(self.root.is_symlink())
 
 
-@unittest.skipUnless(os.name == 'posix', 'Native POSIX script lifecycle')
+@unittest.skipUnless(os.name == "posix", "Native POSIX script lifecycle")
 class NativeLifecycleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.directory = tempfile.TemporaryDirectory(prefix='nox-cli-native-install-')
+        cls.directory = tempfile.TemporaryDirectory(prefix="nox-cli-native-install-")
         cls.addClassCleanup(cls.directory.cleanup)
-        cls.binary = Path(cls.directory.name) / 'nox'
-        subprocess.run(['go', 'build', '-ldflags',
-                        '-X github.com/mapherez/nox-cli/internal/buildinfo.Version=v0.1.0',
-                        '-o', str(cls.binary), './cmd/nox'], cwd=ROOT, check=True, timeout=120)
+        cls.binary = Path(cls.directory.name) / "nox"
+        subprocess.run(
+            [
+                "go",
+                "build",
+                "-ldflags",
+                "-X github.com/mapherez/nox-cli/internal/buildinfo.Version=v0.1.0",
+                "-o",
+                str(cls.binary),
+                "./cmd/nox",
+            ],
+            cwd=ROOT,
+            check=True,
+            timeout=120,
+        )
 
     def test_native_install_reinstall_remove_without_running_installed_binary(self):
         import platform
-        with tempfile.TemporaryDirectory(prefix='nox-cli-lifecycle-') as temporary:
+
+        with tempfile.TemporaryDirectory(prefix="nox-cli-lifecycle-") as temporary:
             base = Path(temporary)
-            home = base / 'user with spaces'
+            home = base / "user with spaces"
             home.mkdir()
-            tools, assets = base / 'tools', base / 'assets'
+            tools, assets = base / "tools", base / "assets"
             tools.mkdir()
             assets.mkdir()
-            system = 'darwin' if platform.system() == 'Darwin' else 'linux'
-            arch = 'arm64' if platform.machine().lower() in ('arm64', 'aarch64') else 'amd64'
-            asset = assets / f'nox-cli_{system}_{arch}.tar.gz'
-            with tarfile.open(asset, 'w:gz') as archive:
-                archive.add(self.binary, arcname='nox')
-            (assets / 'checksums.txt').write_text(hashlib.sha256(asset.read_bytes()).hexdigest() + '  ' + asset.name + '\n')
-            (assets / 'install.sh').write_bytes((ROOT / 'install.sh').read_bytes())
-            curl = tools / 'curl'
-            curl.write_text('''#!/bin/sh
+            system = "darwin" if platform.system() == "Darwin" else "linux"
+            arch = (
+                "arm64"
+                if platform.machine().lower() in ("arm64", "aarch64")
+                else "amd64"
+            )
+            asset = assets / f"nox-cli_{system}_{arch}.tar.gz"
+            with tarfile.open(asset, "w:gz") as archive:
+                archive.add(self.binary, arcname="nox")
+            (assets / "checksums.txt").write_text(
+                hashlib.sha256(asset.read_bytes()).hexdigest()
+                + "  "
+                + asset.name
+                + "\n"
+            )
+            (assets / "install.sh").write_bytes((ROOT / "install.sh").read_bytes())
+            curl = tools / "curl"
+            curl.write_text("""#!/bin/sh
 while [ "$#" -gt 0 ]; do
  case "$1" in https://*) url="$1";; -o) shift; output="$1";; esac
  shift
 done
 case "$url" in https://github.com/mapherez/nox-cli/releases/latest/download/*) ;; *) exit 9;; esac
 cp "$NOX_CLI_TEST_ASSETS/${url##*/}" "$output"
-''')
+""")
             curl.chmod(0o700)
-            env = dict(os.environ, HOME=str(home), XDG_DATA_HOME=str(home / 'data'),
-                       SHELL='/bin/bash', PATH=str(tools) + os.pathsep + os.environ['PATH'],
-                       NOX_CLI_TEST_ASSETS=str(assets))
-            root = home / 'Library/Application Support/nox-cli' if system == 'darwin' else home / 'data/nox-cli'
+            env = dict(
+                os.environ,
+                HOME=str(home),
+                XDG_DATA_HOME=str(home / "data"),
+                SHELL="/bin/bash",
+                PATH=str(tools) + os.pathsep + os.environ["PATH"],
+                NOX_CLI_TEST_ASSETS=str(assets),
+            )
+            root = (
+                home / "Library/Application Support/nox-cli"
+                if system == "darwin"
+                else home / "data/nox-cli"
+            )
             for _ in range(2):
-                installed = subprocess.run(['sh', str(ROOT / 'install.sh')], env=env, capture_output=True, text=True, timeout=30)
+                installed = subprocess.run(
+                    ["sh", str(ROOT / "install.sh")],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
                 self.assertEqual(installed.returncode, 0, installed.stderr)
-                self.assertTrue((root / 'install-state.json').exists())
-                self.assertFalse((root / 'install').exists())
-            self.assertEqual((home / '.bashrc').read_text().count('# >>> nox-cli installer >>>'), 1)
+                self.assertTrue((root / "install-state.json").exists())
+                self.assertFalse((root / "install").exists())
+            self.assertEqual(
+                (home / ".bashrc").read_text().count("# >>> nox-cli installer >>>"), 1
+            )
             # Persist only non-secret data; the default uninstall must never open a vault.
-            (root / 'config.json').write_text('preserved configuration')
-            (root / 'unrelated').write_text('keep me')
+            (root / "config.json").write_text("preserved configuration")
+            (root / "unrelated").write_text("keep me")
             # A non-executable installed payload still has its verified ownership hash.
-            (root / 'nox').chmod(0o600)
-            removed = subprocess.run(['sh', str(ROOT / 'uninstall.sh')], env=env, capture_output=True, text=True, timeout=30)
+            (root / "nox").chmod(0o600)
+            removed = subprocess.run(
+                ["sh", str(ROOT / "uninstall.sh")],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
             self.assertEqual(removed.returncode, 0, removed.stderr)
-            self.assertFalse((root / 'nox').exists())
-            self.assertFalse((root / 'install-state.json').exists())
-            self.assertFalse((root / 'install').exists())
-            self.assertEqual((root / 'config.json').read_text(), 'preserved configuration')
-            self.assertEqual((root / 'unrelated').read_text(), 'keep me')
-            self.assertFalse((home / '.bashrc').exists(), 'Installer-created empty profile was left behind')
+            self.assertFalse((root / "nox").exists())
+            self.assertFalse((root / "install-state.json").exists())
+            self.assertFalse((root / "install").exists())
+            self.assertEqual(
+                (root / "config.json").read_text(), "preserved configuration"
+            )
+            self.assertEqual((root / "unrelated").read_text(), "keep me")
+            self.assertFalse(
+                (home / ".bashrc").exists(),
+                "Installer-created empty profile was left behind",
+            )
 
 
 if __name__ == "__main__":

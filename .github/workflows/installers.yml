@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Published stable CLI release tag (vX.Y.Z)'
+        description: "Published stable CLI release tag (vX.Y.Z)"
         required: true
         type: string
 
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.13'
+          python-version: "3.13"
       - name: Fetch and verify scripts from the selected published release
         env:
           GH_TOKEN: ${{ github.token }}
