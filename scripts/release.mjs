@@ -77,6 +77,9 @@ export function release(argv, {
   git('-c', 'user.useConfigOnly=true', 'var', 'GIT_AUTHOR_IDENT');
   git('-c', 'user.useConfigOnly=true', 'var', 'GIT_COMMITTER_IDENT');
   const originalHead = git('rev-parse', '--verify', 'HEAD^{commit}');
+  if (git('ls-remote', '--heads', 'origin', `refs/heads/${branch}`).split(/\s+/)[0] !== originalHead) {
+    throw new Error('Push the source commit to origin before releasing.');
+  }
   git('ls-files', '--error-unmatch', '--', 'package.json');
   const versionPath = join(root, 'package.json');
   const original = readFileSync(versionPath);
@@ -101,7 +104,7 @@ export function release(argv, {
     (original.toString('utf8').endsWith('\n') ? newline : ''));
   try {
     writeFileSync(versionPath, updated);
-    log(`Preparing ${tag}; build and test checks run in the existing GitHub Actions release workflow.`);
+    log(`Preparing ${tag}; the release workflow reuses the approved source CI.`);
     const unexpected = status().filter(({ code, path }) => path !== 'package.json' || code !== ' M');
     if (unexpected.length) {
       throw new Error(`Unexpected concurrent changes: ${unexpected.map(({ code, path }) => `${code} ${path}`).join(', ')}`);
@@ -139,7 +142,7 @@ export function release(argv, {
       : `git tag -a ${quote(tag)} -m ${quote(`Release ${tag}`)} ${quote(commit)}\n${pushCommand}`;
     throw new Error(`${error.message}\nRelease commit ${commit}${tagCreated ? ` and annotated tag ${tag}` : ' (without a release tag)'} remain local. No automatic reset was performed.\nInspect the local state, then recover in a POSIX shell (Git Bash on Windows):\n${recovery}`);
   }
-  log(`Pushed ${tag}. GitHub Actions will run the existing checks, build the native packages and publish the release.`);
+  log(`Pushed ${tag}. GitHub Actions will reuse approved source CI, build native packages and publish the release.`);
   log("https://github.com/mapherez/nox-cli/actions/workflows/release.yml");
   return { version, tag, branch, commit };
 }

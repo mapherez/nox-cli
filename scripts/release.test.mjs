@@ -27,6 +27,7 @@ function fixture(t, options = {}) {
     if (args[0] === 'ls-files') return 'package.json';
     if (args[0] === 'tag' && args[1] === '--list') return options.existingTag ? 'v0.1.0' : '';
     if (args[0] === 'ls-remote') {
+      if (args.includes('--heads')) return options.unpushed ? 'another-commit refs/heads/main' : `${head} refs/heads/main`;
       if (options.remoteFailure) throw new Error('Remote unavailable');
       return '';
     }
@@ -80,4 +81,11 @@ test('a push failure preserves the release commit/version and provides recovery'
   assert.throws(() => release(['0.1.0'], { ...f, cwd: f.root, log() {} }), /remain local.*No automatic reset/s);
   assert.equal(JSON.parse(readFileSync(f.path)).version, '0.1.0');
   assert.equal(f.calls.some(args => args[0] === 'reset'), false);
+});
+
+test('unpushed source is rejected before changing the version', t => {
+  const f = fixture(t, { unpushed: true });
+  assert.throws(() => release(['0.1.0'], { ...f, cwd: f.root, log() {} }), /Push the source/);
+  assert.equal(readFileSync(f.path, 'utf8'), f.original);
+  assert.equal(f.calls.some(args => args[0] === 'commit'), false);
 });

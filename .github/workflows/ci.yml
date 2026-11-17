@@ -1,21 +1,59 @@
 name: CI
 
 on:
-  pull_request:
   push:
-    branches: [main]
+    branches: ['**']
+  pull_request:
   workflow_dispatch:
-  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: nox-cli-ci-${{ github.ref }}
+  group: nox-cli-ci-${{ github.event_name == 'push' && contains(github.event.head_commit.message, 'NoX-CLI-Release:') && github.sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: Select CI work
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - name: Recognize a version-only release request
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode=full
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            mode=$(node scripts/ci-policy.mjs classify "$GITHUB_SHA")
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+  policy:
+    name: CI reuse policy tests
+    needs: plan
+    if: needs.plan.outputs.mode == 'full'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - run: node --test scripts/ci-policy.test.mjs
+
   native:
+    needs: plan
+    if: needs.plan.outputs.mode == 'full'
     name: Native checks / ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -92,8 +130,9 @@ jobs:
           NOX_CLI_TEST_NATIVE_VAULT=1 go test -mod=readonly ./internal/credentials -run TestNativeVaultReplacement -count=1 -timeout=30s
           NOX_VAULT_TEST
 
-
   cross-build:
+    needs: plan
+    if: needs.plan.outputs.mode == 'full'
     name: Six-target compilation
     runs-on: ubuntu-latest
     steps:
@@ -106,19 +145,16 @@ jobs:
         with:
           python-version: '3.13'
       - name: Cross-compile source checks
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: python scripts/check_foundation.py --cross-build
-      - name: Build verified release packages from the selected tag
-        if: startsWith(github.ref, 'refs/tags/')
+
+  approved:
+    name: CI approved
+    needs: [plan, policy, native, cross-build]
+    if: ${{ !cancelled() && needs.plan.outputs.mode == 'full' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every source gate
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RESULTS: ${{ toJSON(needs) }}
         run: |
-          python -c 'import json, os; assert os.environ["RELEASE_TAG"] == "v" + json.load(open("package.json"))["version"], "Release tag does not match package.json."'
-          python scripts/build_release.py --version "$RELEASE_TAG" --output dist
-      - uses: actions/upload-artifact@v6
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          name: release-dist
-          path: dist/*
-          if-no-files-found: error
-          retention-days: 3
+          node -e 'const jobs = JSON.parse(process.env.RESULTS); if (Object.values(jobs).some(job => job.result !== "success")) process.exit(1)'
